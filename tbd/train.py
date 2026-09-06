@@ -43,6 +43,17 @@ from tbd.assembler import VOCAB, VOCAB_SIZE, AssemblyError, assemble
 from tbd.model import PolicyConfig, RecurrentPolicy
 from tbd.spec import SPECS, Spec, get_spec
 
+# Base of the exponential weighting used to pick how many trailing token
+# positions are freely sampled each episode (see `train()`). A base of 2.0
+# means each additional free position is twice as likely as the one before
+# it, so most episodes free (nearly) the whole program -- giving ordinary
+# REINFORCE the most exploration -- while a shrinking fraction instead
+# mutate only a few trailing positions of the current best-known program.
+# Chosen empirically: smaller bases made local mutation too rare to help
+# escape multi-token local optima; larger bases made mutation episodes too
+# rare to meaningfully refine already-decent elites.
+FREE_LENGTH_WEIGHT_BASE = 2.0
+
 
 def evaluate_program(token_ids: List[int], spec: Spec, states: List) -> float:
     """Fraction of `states` for which the assembled program satisfies spec."""
@@ -199,7 +210,7 @@ class TrainResult:
     best_tokens: Dict[str, List[int]]
     best_train_score: float
     best_holdout_score: float
-    history: List[Tuple[int, float]] = field(default_factory=list)  # (generation, mean_reward)
+    history: List[Tuple[int, float]] = field(default_factory=list)  # (generation, mean_train_score)
 
 
 def train(
@@ -258,7 +269,7 @@ def train(
         # that can refine/extend an already-partially-correct elite without
         # having to re-discover its working prefix from scratch by chance.
         free_lengths = np.arange(1, program_length + 1)
-        free_weights = 2.0 ** (free_lengths - 1).astype(float)
+        free_weights = FREE_LENGTH_WEIGHT_BASE ** (free_lengths - 1).astype(float)
         free_weights /= free_weights.sum()
 
         for i in range(episodes_per_generation):

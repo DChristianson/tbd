@@ -92,15 +92,26 @@ def _train_byte(rng: random.Random, holdout_min: int) -> int:
     return rng.randint(0, holdout_min - 1)
 
 
+# Byte value at/above which single-operand specs (increment, copy) hold
+# out their inputs from training; below it is used for training samples.
+SINGLE_OPERAND_HOLDOUT_MIN = 200
+
+# Byte value at/above which two-operand specs (add, max) hold out *both*
+# operands from training. Lower than SINGLE_OPERAND_HOLDOUT_MIN so that
+# two-operand held-out states remain a reasonably sized, easy-to-sample
+# range even though both operands must fall in it simultaneously.
+PAIR_OPERAND_HOLDOUT_MIN = 180
+
+
 def make_increment_spec() -> Spec:
     """out[$01] = (in[$00] + 1) mod 256."""
 
     def sample(rng: random.Random) -> MachineState:
-        return MachineState(zero_page={0x00: _train_byte(rng, 200)})
+        return MachineState(zero_page={0x00: _train_byte(rng, SINGLE_OPERAND_HOLDOUT_MIN)})
 
     def sample_holdout(rng: random.Random) -> MachineState:
         # Hold out the high fifth of the input byte range from training.
-        return MachineState(zero_page={0x00: rng.randint(200, 255)})
+        return MachineState(zero_page={0x00: rng.randint(SINGLE_OPERAND_HOLDOUT_MIN, 255)})
 
     def check(initial: MachineState, final: MachineState) -> bool:
         expected = (initial.zero_page[0x00] + 1) & 0xFF
@@ -121,14 +132,20 @@ def make_add_spec() -> Spec:
 
     def sample(rng: random.Random) -> MachineState:
         return MachineState(
-            zero_page={0x00: _train_byte(rng, 180), 0x01: _train_byte(rng, 180)}
+            zero_page={
+                0x00: _train_byte(rng, PAIR_OPERAND_HOLDOUT_MIN),
+                0x01: _train_byte(rng, PAIR_OPERAND_HOLDOUT_MIN),
+            }
         )
 
     def sample_holdout(rng: random.Random) -> MachineState:
         # Hold out combinations where both operands are large (more likely
         # to exercise carry behaviour not seen during training).
         return MachineState(
-            zero_page={0x00: rng.randint(180, 255), 0x01: rng.randint(180, 255)}
+            zero_page={
+                0x00: rng.randint(PAIR_OPERAND_HOLDOUT_MIN, 255),
+                0x01: rng.randint(PAIR_OPERAND_HOLDOUT_MIN, 255),
+            }
         )
 
     def check(initial: MachineState, final: MachineState) -> bool:
@@ -149,10 +166,10 @@ def make_copy_spec() -> Spec:
     """out[$01] = in[$00]."""
 
     def sample(rng: random.Random) -> MachineState:
-        return MachineState(zero_page={0x00: _train_byte(rng, 200)})
+        return MachineState(zero_page={0x00: _train_byte(rng, SINGLE_OPERAND_HOLDOUT_MIN)})
 
     def sample_holdout(rng: random.Random) -> MachineState:
-        return MachineState(zero_page={0x00: rng.randint(200, 255)})
+        return MachineState(zero_page={0x00: rng.randint(SINGLE_OPERAND_HOLDOUT_MIN, 255)})
 
     def check(initial: MachineState, final: MachineState) -> bool:
         return final.zero_page.get(0x01) == initial.zero_page[0x00]
@@ -172,12 +189,18 @@ def make_max_spec() -> Spec:
 
     def sample(rng: random.Random) -> MachineState:
         return MachineState(
-            zero_page={0x00: _train_byte(rng, 180), 0x01: _train_byte(rng, 180)}
+            zero_page={
+                0x00: _train_byte(rng, PAIR_OPERAND_HOLDOUT_MIN),
+                0x01: _train_byte(rng, PAIR_OPERAND_HOLDOUT_MIN),
+            }
         )
 
     def sample_holdout(rng: random.Random) -> MachineState:
         return MachineState(
-            zero_page={0x00: rng.randint(180, 255), 0x01: rng.randint(180, 255)}
+            zero_page={
+                0x00: rng.randint(PAIR_OPERAND_HOLDOUT_MIN, 255),
+                0x01: rng.randint(PAIR_OPERAND_HOLDOUT_MIN, 255),
+            }
         )
 
     def check(initial: MachineState, final: MachineState) -> bool:

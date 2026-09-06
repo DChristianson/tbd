@@ -144,14 +144,20 @@ NAME_TO_INDEX = {tok.name: i for i, tok in enumerate(VOCAB)}
 HALT_OPCODE = 0x00  # BRK, always appended to the end of every assembled program
 
 
-def assemble(token_ids: List[int], org: int = 0x0600) -> bytes:
+def assemble(token_ids: List[int], org: int = 0x0600, vocab: Optional[List[Token]] = None) -> bytes:
     """Assemble a sequence of token ids into 6502 machine code.
 
     A trailing BRK is always appended so every synthesized program halts.
     Raises :class:`AssemblyError` if a branch token's target falls outside
     the representable signed 8-bit relative range.
+
+    `vocab` defaults to the module-level :data:`VOCAB`; an alternate list
+    of tokens may be supplied (e.g. in tests) without mutating the shared
+    global vocabulary.
     """
-    tokens = [VOCAB[i] for i in token_ids]
+    if vocab is None:
+        vocab = VOCAB
+    tokens = [vocab[i] for i in token_ids]
 
     lengths = [tok.fixed_length() for tok in tokens]
     lengths.append(1)  # trailing BRK

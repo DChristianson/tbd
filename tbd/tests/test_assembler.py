@@ -83,25 +83,22 @@ class AssemblerTests(unittest.TestCase):
             cpu.run(100)
             self.assertEqual(mem.read(0x02), max(a, b), f"a={a} b={b}")
 
-
     def test_out_of_range_branch_raises(self):
         # The built-in vocabulary only offers small forward skips, so no
         # real token sequence can overflow a signed-8-bit relative branch.
-        # Exercise the range check directly by temporarily registering a
-        # token with an enormous skip count.
+        # Exercise the range check directly with a local vocabulary that
+        # includes a token with an enormous skip count, without mutating
+        # the shared global VOCAB.
         from tbd.assembler import Token
 
         huge_skip_token = Token(
             name="BCS_SKIP_HUGE", branch_mnemonic="BCS", skip=200
         )
-        VOCAB.append(huge_skip_token)
-        try:
-            huge_index = len(VOCAB) - 1
-            tokens = [huge_index] + ids_for("LDA_IMM1") * 200
-            with self.assertRaises(AssemblyError):
-                assemble(tokens)
-        finally:
-            VOCAB.pop()
+        local_vocab = list(VOCAB) + [huge_skip_token]
+        huge_index = len(local_vocab) - 1
+        tokens = [huge_index] + ids_for("LDA_IMM1") * 200
+        with self.assertRaises(AssemblyError):
+            assemble(tokens, vocab=local_vocab)
 
 
 if __name__ == "__main__":

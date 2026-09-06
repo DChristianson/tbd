@@ -17,7 +17,7 @@ architecture; no autodiff framework is required.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -74,7 +74,7 @@ class RecurrentPolicy:
         return np.zeros(self.cfg.hidden_size)
 
     def step(
-        self, task_id: int, prev_token: int, hidden: np.ndarray
+        self, task_id: int, prev_token: Optional[int], hidden: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
         """One recurrent step. Returns (action_probs, new_hidden)."""
         p = self.params
