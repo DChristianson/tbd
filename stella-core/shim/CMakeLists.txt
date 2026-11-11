@@ -1,0 +1,5 @@
+add_executable(stella_core_smoketest smoketest.cpp)
+target_link_libraries(stella_core_smoketest PRIVATE stella_emucore)
+
+add_executable(stella_core main.cpp stella_core.cxx)
+target_link_libraries(stella_core PRIVATE stella_emucore)

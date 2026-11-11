@@ -1,0 +1,82 @@
+// Evaluation spike, not adopted — see
+// docs/design/emulator-protocol-flatbuffers.md for the cost/savings
+// writeup this schema was built to measure.
+//
+// Covers exactly the 6 request types Task 1's tbd.tools.emulator.run()
+// actually sends (confirmed by grepping emulator.py, not guessed):
+// load_rom, step_scanline, get_tia_state, get_cpu_state,
+// get_tia_registers, quit. Everything else in Emulator Protocol v1
+// (docs/design/emulator-protocol.md) — reset, step_frame, read_memory,
+// write_memory, get_ram, set_ram — is left out, deliberately, to keep
+// this spike scoped to what's actually measurable against a real test run.
+
+namespace tbd.emulator.fbs;
+
+enum Command: ubyte {
+  LoadRom,
+  StepScanline,
+  GetTiaState,
+  GetCpuState,
+  GetTiaRegisters,
+  Quit,
+}
+
+// --- Requests ---
+// LoadRom is the only request carrying a variable-length argument; the
+// rest (StepScanline, GetTiaState, GetCpuState, GetTiaRegisters, Quit)
+// carry none for this subset (step_scanline's "n" always defaults to 1 in
+// the current run() loop — confirmed, it's never passed explicitly), so a
+// bare Command enum value is the whole request for them.
+
+table LoadRomRequest {
+  path: string;
+}
+
+union RequestArgs { LoadRomRequest }
+
+table Request {
+  cmd: Command;
+  args: RequestArgs;  // absent for StepScanline/GetTiaState/GetCpuState/GetTiaRegisters/Quit
+}
+
+// --- Responses ---
+
+table OkResponse {}
+
+table ErrorResponse {
+  message: string;
+}
+
+table CpuStateResponse {
+  pc: uint16;
+  a: uint8;
+  x: uint8;
+  y: uint8;
+  sp: uint8;
+  cycles: uint64;
+}
+
+table TiaStateResponse {
+  scanlines: uint32;
+  scanlines_last_frame: uint32;
+  frame_number: uint32;
+}
+
+table TiaRegistersResponse {
+  registers: [uint8];  // always 64 entries
+}
+
+union ResponseBody {
+  OkResponse,
+  ErrorResponse,
+  CpuStateResponse,
+  TiaStateResponse,
+  TiaRegistersResponse,
+}
+
+table Response {
+  ok: bool;
+  body: ResponseBody;
+}
+
+root_type Request;

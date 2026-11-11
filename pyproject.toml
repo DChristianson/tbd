@@ -1,0 +1,16 @@
+[project]
+name = "tbd"
+version = "0.0.0"
+description = "Atari 2600 game synthesis agent with an attributed corpus and clean-room discovery loop"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
