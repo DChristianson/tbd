@@ -1,0 +1,34 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Layer 0 build artifacts
+*.bin
+*.a26
+*.lst
+*.sym
+
+.DS_Store
+
+# stella-core native build output (build/ = Mac, build-linux/ = dev container)
+stella-core/build/
+stella-core/build-linux/
+
+# FlatBuffers spike (docs/design/flatbuffers-spike/) — generated code and
+# compiled benchmark binary are build output, not source
+docs/design/flatbuffers-spike/generated/
+docs/design/flatbuffers-spike/cpp_benchmark
+
+# Claude Code project settings: machine-specific (holds per-machine hooks,
+# e.g. snagboat's, and bd's `bd prime` hook written by `bd init`).
+.claude/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*
