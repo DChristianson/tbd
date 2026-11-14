@@ -1,0 +1,10 @@
+[package]
+name = "racer-sim"
+version = "0.1.0"
+description = "Cycle-exact simulator of the Racer-26 target model"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dev-dependencies]
+serde_json = "1"

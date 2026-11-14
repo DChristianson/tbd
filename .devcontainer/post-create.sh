@@ -7,6 +7,7 @@ echo "claude: $(claude --version 2>/dev/null || echo 'not found')"
 echo "git:    $(git --version)"
 echo "dasm:   $(dasm 2>&1 | head -1)"
 echo "python: $(python3 --version)"
+echo "rust:   $(rustc --version)"
 
 # Record the metrics opt-out in bd's user config too (the env vars already
 # disable it; this keeps `bd metrics status` honest if they are ever unset).
@@ -29,6 +30,9 @@ if [ -f "$cache" ] && ! grep -qxF "CMAKE_HOME_DIRECTORY:INTERNAL=$PWD/stella-cor
 fi
 cmake -S stella-core -B stella-core/build-linux -DCMAKE_BUILD_TYPE=Debug >/dev/null
 cmake --build stella-core/build-linux -j"$(nproc)"
+
+# racer-check (vendored, vendor/racer/) into target-linux/ (the Mac uses target/).
+cargo build -q --release --manifest-path vendor/racer/Cargo.toml --target-dir vendor/racer/target-linux
 
 # Claude Code integration comes from `bd init` (init-project.sh): it writes a
 # project-level .claude/settings.json hook that runs `bd prime` at session start.

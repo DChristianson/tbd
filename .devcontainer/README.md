@@ -17,9 +17,9 @@ VS Code's backend (terminal, extensions, Claude Code) into the container.
 
 | File | Job |
 |---|---|
-| `Dockerfile` | Debian + git, curl, jq, ripgrep; Python 3, build-essential, CMake; **DASM** 2.20.14.1 built from a hash-pinned source archive; **bd** pinned to a verified release; **Claude Code**; removes `sudo` |
+| `Dockerfile` | Debian + git, curl, jq, ripgrep; Python 3, build-essential, CMake; **DASM** 2.20.14.1 built from a hash-pinned source archive; **Rust** 1.100.0 via a hash-pinned rustup-init; **bd** pinned to a verified release; **Claude Code**; removes `sudo` |
 | `devcontainer.json` | GitHub CLI (feature), security options, Claude login volume, env vars (`TBD_STELLA_CORE`, `OLLAMA_HOST`), setup hooks, extensions |
-| `post-create.sh` | Runs once at creation: prints tool versions, turns bd metrics off, makes a Python venv at `~/venv`, builds `stella-core` into `stella-core/build-linux/` |
+| `post-create.sh` | Runs once at creation: prints tool versions, turns bd metrics off, makes a Python venv at `~/venv`, builds `stella-core` into `stella-core/build-linux/` and the vendored `racer-check` into `vendor/racer/target-linux/` |
 | `init-project.sh` | Run once by hand: `git init` (no-op here) + `bd init --skip-hooks` |
 | `check-host-safety.sh` | Runs on every start: warns if git hooks have been configured |
 
@@ -45,6 +45,7 @@ The folder is shared, so anything with platform-specific binaries is kept apart:
 | Python env | `.venv/` | `/home/vscode/venv` (outside the shared folder) |
 | `stella-core` build | `stella-core/build/` | `stella-core/build-linux/`, picked up via `TBD_STELLA_CORE` |
 | DASM | Homebrew | built in the image, same version |
+| `racer-check` | `vendor/racer/target/` | `vendor/racer/target-linux/`, via `TBD_RACER_CHECK` |
 
 ## Local models (Ollama)
 

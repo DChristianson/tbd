@@ -1,0 +1,4 @@
+# Choose dependency versions that support the workspace's rust-version
+# (Cargo.toml), so the workspace builds on that Rust and newer.
+[resolver]
+incompatible-rust-versions = "fallback"
