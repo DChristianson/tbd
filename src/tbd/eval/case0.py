@@ -56,8 +56,10 @@ PROMPT = (
 RED_HUE = 0x40
 DEFAULT_COLOR = 0x42
 
-CATEGORIES = ("pass", "no_code", "assemble_error", "unsupported_opcode", "crash",
-              "timing", "output_mismatch")
+CATEGORIES = ("pass", "timeout", "truncated", "no_code", "assemble_error",
+              "unsupported_opcode", "crash", "timing", "output_mismatch")
+MAX_OUTPUT_TOKENS = 4096   # includes a reasoning model's thinking
+REQUEST_TIMEOUT_S = 600
 TIMING_PROPS = {"frame_length", "vsync"}
 
 
@@ -184,14 +186,15 @@ def grade_program(code: str, workdir: Path) -> tuple[dict, Grade]:
 # ---------------------------------------------------------------- model
 
 def ollama_chat(model: str, messages: list[dict], *, temperature: float, seed: int,
-                think: bool | None) -> dict:
+                think: bool | None, max_tokens: int = MAX_OUTPUT_TOKENS) -> dict:
     body = {"model": model, "messages": messages, "stream": False,
-            "options": {"temperature": temperature, "seed": seed, "num_ctx": 8192}}
+            "options": {"temperature": temperature, "seed": seed, "num_ctx": 16384,
+                        "num_predict": max_tokens}}
     if think is not None:
         body["think"] = think
     req = urllib.request.Request(f"{OLLAMA}/api/chat", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=1800) as r:
+    with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S) as r:
         return json.load(r)
 
 
@@ -229,13 +232,24 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
     budget = 1 if args.mode == "one-shot" else 1 + args.retries
     for attempt_no in range(1, budget + 1):
         t0 = time.time()
-        resp = ollama_chat(args.model, messages, temperature=args.temperature, seed=seed,
-                           think=args.think)
+        try:
+            resp = ollama_chat(args.model, messages, temperature=args.temperature, seed=seed,
+                               think=args.think, max_tokens=args.max_tokens)
+        except (TimeoutError, OSError) as e:  # urllib wraps timeouts as URLError(OSError)
+            resp = {"error": f"{type(e).__name__}: {e}"}
         wall_ms = int((time.time() - t0) * 1000)
         text = resp.get("message", {}).get("content", "")
+        thinking = resp.get("message", {}).get("thinking", "")
         code = extract_code(text)
         workdir = job_dir / "artifacts" / f"sample-{sample:02d}" / f"attempt-{attempt_no}"
-        if code is None:
+        empty = {"ok": False, "errors": [], "warnings": []}
+        if "error" in resp:
+            asm_rec, grade = empty, Grade(False, "timeout", detail=resp["error"])
+            workdir.mkdir(parents=True, exist_ok=True)
+        elif code is None and resp.get("done_reason") == "length":
+            asm_rec, grade = empty, Grade(False, "truncated")
+            workdir.mkdir(parents=True, exist_ok=True)
+        elif code is None:
             asm_rec, grade = {"ok": False, "errors": [], "warnings": []}, Grade(False, "no_code")
             workdir.mkdir(parents=True, exist_ok=True)
         else:
@@ -243,21 +257,26 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
         (workdir / "response.md").write_text(text)
         record = {
             "sample": sample, "seed": seed, "attempt_no": attempt_no,
-            "prompt": messages[-1]["content"], "response": text, "code": code,
+            "prompt": messages[-1]["content"], "response": text, "thinking": thinking,
+            "done_reason": resp.get("done_reason"), "code": code,
             "fact_ids_in_context": [], "assemble": asm_rec, "grade": grade.to_dict(),
-            "tokens": {"prompt": resp.get("prompt_eval_count"), "output": resp.get("eval_count")},
+            "tokens": {"prompt": resp.get("prompt_eval_count"), "output": resp.get("eval_count"),
+                       "tokens_per_s": round(resp["eval_count"] / (resp["eval_duration"] / 1e9), 1)
+                       if resp.get("eval_duration") else None},
             "wall_ms": wall_ms,
         }
         log.write(json.dumps(record) + "\n")
         log.flush()
         print(f"  sample {sample} attempt {attempt_no}: {grade.category}"
               + (f" ({grade.detail[:100]})" if grade.detail else ""), flush=True)
+        if attempt_no == 1:
+            first = grade.category
+        if grade.category == "timeout":
+            return {"passed": False, "attempts": attempt_no, "first_category": first}
         if grade.ok:
             return {"passed": True, "attempts": attempt_no, "first_category": None}
         messages += [{"role": "assistant", "content": text},
                      {"role": "user", "content": feedback(asm_rec, grade)}]
-        if attempt_no == 1:
-            first = grade.category
     return {"passed": False, "attempts": budget, "first_category": first}
 
 
@@ -268,6 +287,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--mode", choices=("one-shot", "tool-feedback"), default="one-shot")
     p.add_argument("--retries", type=int, default=3, help="tool-feedback retries after the first")
     p.add_argument("--temperature", type=float, default=0.7)
+    p.add_argument("--max-tokens", type=int, default=MAX_OUTPUT_TOKENS)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--think", choices=("on", "off", "default"), default="default",
                    help="Ollama think flag for reasoning models")
@@ -291,7 +311,8 @@ def main(argv: list[str] | None = None) -> int:
         "facts": "none", "fact_snapshot": None, "task": "t1", "variant": "canonical",
         "mode": args.mode, "samples": args.samples, "temperature": args.temperature,
         "seed": args.seed, "retries": args.retries if args.mode == "tool-feedback" else 0,
-        "think": args.think, "prompt": PROMPT, "grader": "racer-check",
+        "think": args.think, "max_tokens": args.max_tokens,
+        "request_timeout_s": REQUEST_TIMEOUT_S, "prompt": PROMPT, "grader": "racer-check",
         "check_template": str(CHECK_TEMPLATE.relative_to(ROOT)),
         "accepted_colors": "0x40-0x4E (hue 4, NTSC red)",
     }
