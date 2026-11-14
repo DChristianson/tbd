@@ -20,6 +20,13 @@ fi
 /home/vscode/venv/bin/pip install -q -e '.[test]'
 
 # Linux build of stella-core into build-linux/ (the Mac uses build/).
+# build-linux/ lives on the bind mount and survives rebuilds; if the workspace
+# path changed, its CMake cache points at the old source dir, so start fresh.
+cache=stella-core/build-linux/CMakeCache.txt
+if [ -f "$cache" ] && ! grep -qxF "CMAKE_HOME_DIRECTORY:INTERNAL=$PWD/stella-core" "$cache"; then
+  echo "stella-core/build-linux was configured for another path; removing it."
+  rm -rf stella-core/build-linux
+fi
 cmake -S stella-core -B stella-core/build-linux -DCMAKE_BUILD_TYPE=Debug >/dev/null
 cmake --build stella-core/build-linux -j"$(nproc)"
 

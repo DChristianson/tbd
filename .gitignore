@@ -32,3 +32,4 @@ docs/design/flatbuffers-spike/cpp_benchmark
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+.snagboat/
