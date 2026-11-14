@@ -36,6 +36,9 @@ from pathlib import Path
 # TIA write-register address for COLUBK — same value as vcs.h's COLUBK
 # equate (0009), vendored at tests/fixtures/vendor/atari2600/vcs.h.
 _COLUBK_ADDR = 0x09
+_VSYNC_ADDR = 0x00
+_VBLANK_ADDR = 0x01
+_SYNC_BLANK_BIT = 0x02  # D1 turns VSYNC / VBLANK on
 
 # TBD_STELLA_CORE overrides the binary location. The dev container sets it to
 # a separate build dir (stella-core/build-linux/) so a Linux build never
@@ -51,6 +54,11 @@ class Frame:
     cycle_count: int
     scanline_colors: list[int]  # COLUBK value per scanline, across the whole
     # frame (not just the visible region — see docs/plan/stella-core-integration.md)
+    scanlines: int = 0  # Stella's own count of lines in this frame
+    # Per scanline, as sampled at the end of the line: whether VSYNC / VBLANK
+    # (D1) was on. Same indexing as scanline_colors.
+    vsync: list[bool] = field(default_factory=list)
+    vblank: list[bool] = field(default_factory=list)
 
 
 @dataclass
@@ -123,6 +131,8 @@ def run(rom: bytes, *, num_frames: int, binary: Path | None = None) -> RunResult
 
             frames: list[Frame] = []
             current_colors: list[int] = []
+            current_vsync: list[bool] = []
+            current_vblank: list[bool] = []
             # Discard two wraps before trusting steady state, not one: the
             # first wrap only ends the power-on/CLEAN_START transient: the
             # kernel's *first* real pass still starts with a few scanlines
@@ -157,6 +167,9 @@ def run(rom: bytes, *, num_frames: int, binary: Path | None = None) -> RunResult
                             Frame(
                                 cycle_count=cycles_now - boundary_cycles,
                                 scanline_colors=current_colors,
+                                scanlines=tia["scanlines_last_frame"],
+                                vsync=current_vsync,
+                                vblank=current_vblank,
                             )
                         )
                         if len(frames) == num_frames:
@@ -164,11 +177,15 @@ def run(rom: bytes, *, num_frames: int, binary: Path | None = None) -> RunResult
                     if wraps_seen >= warmup_wraps_needed:
                         started = True
                     current_colors = []
+                    current_vsync = []
+                    current_vblank = []
                     boundary_cycles = cycles_now
 
                 if started:
-                    colubk = core.send(cmd="get_tia_registers")["registers"][_COLUBK_ADDR]
-                    current_colors.append(colubk)
+                    regs = core.send(cmd="get_tia_registers")["registers"]
+                    current_colors.append(regs[_COLUBK_ADDR])
+                    current_vsync.append(bool(regs[_VSYNC_ADDR] & _SYNC_BLANK_BIT))
+                    current_vblank.append(bool(regs[_VBLANK_ADDR] & _SYNC_BLANK_BIT))
 
                 prev_scanlines = cur_scanlines
 

@@ -112,6 +112,16 @@ Order of work from here:
      transient *and* that first real pass), not one, before trusting
      steady state.
 4. ✅ `skipif` guards removed — both fixture and `run()` exist and pass.
+5. ✅ (2026-11-14) Fixture fixed, tests strengthened. Checked with racer's
+   checker, the original fixture drew **263** lines and never blanked:
+   `VERTICAL_SYNC`'s first `WSYNC` ends the last overscan line, so 30
+   overscan `WSYNC`s made one line too many, and `VBLANK` was turned off
+   once and never back on. The tests only checked that frames were *equal*
+   length and that `COLUBK` held red, so both passed. They now also check
+   262 lines, 3 lines of VSYNC, and 192 contiguous unblanked lines, all red.
+   The fixture also defines `NO_ILLEGAL_OPCODES` (racer's simulator rejects
+   `CLEAN_START`'s `lxa`). Its racer check file is
+   `tests/fixtures/red_background.check.toml` and passes 101 of 101 runs.
 
 ## Later tasks
 

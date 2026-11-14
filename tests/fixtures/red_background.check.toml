@@ -1,0 +1,36 @@
+# Case 0 / Task 1 in racer's check-file format (racer docs/checker.md):
+# a stable NTSC frame with a solid red background. Checked per color clock,
+# from a zeroed and 100 random power-on states. Build the ROM first:
+#   cd tests/fixtures && dasm red_background.asm -f3 -obuild/red_background.bin
+# then: racer-check tests/fixtures/red_background.check.toml
+
+rom = "build/red_background.bin"
+
+[run]
+frames = 100
+skip_frames = 1
+zero = true
+random_seeds = 100
+
+[[property]]
+kind = "frame_length"
+lines = 262
+
+[[property]]
+name = "vsync"
+kind = "signal_on_lines"
+signal = "sync"
+first_line = 0
+lines = 3
+
+[[property]]
+name = "blanking"
+kind = "blank_outside"
+lines = [40, 232]
+
+[[property]]
+name = "background"
+kind = "constant_output"
+lines = [40, 232]
+clocks = [68, 228]
+color = 0x42
