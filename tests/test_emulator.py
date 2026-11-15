@@ -7,14 +7,14 @@ color. Driven by `stella-core`'s compiled binary
 before running these.
 """
 
-from pathlib import Path
 
 import pytest
 
+from tbd.paths import HEADERS, TASKS
 from tbd.tools.assembler import assemble
 from tbd.tools.emulator import run, _DEFAULT_BIN
 
-FIXTURE = Path(__file__).parent / "fixtures" / "red_background.asm"
+FIXTURE = TASKS / "t1" / "red_background.asm"
 # TIA hue 4 ("red"), confirmed against the real NTSC palette by running the
 # fixture through stella-core and reading COLUBK's shadow register back —
 # not a guess.
@@ -28,7 +28,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def rom():
-    result = assemble(FIXTURE)
+    result = assemble(FIXTURE, include_dirs=[HEADERS])
     assert result.ok
     return result.rom
 

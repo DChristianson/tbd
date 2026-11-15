@@ -126,3 +126,32 @@ bd prime                # Refresh Beads context
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md for details and anti-patterns.
 <!-- END BEADS CODEX SETUP -->
+
+## Build & Test
+
+See [README.md](README.md) for building DASM, racer-check and (optionally)
+stella-core, in the dev container or on a Mac.
+
+```bash
+pip install -e '.[test]'      # '.[test,eval]' to run evals against Claude
+python -m pytest              # racer-check / stella-core tests skip if not built
+```
+
+## Architecture Overview
+
+- `src/tbd/tools/` — `assembler` (DASM) and `emulator` (stella-core, tests only).
+- `src/tbd/eval/grading.py` — task-agnostic: extract code, assemble, run a
+  racer-check check file, categorize. `models.py` / `claude_client.py` — the
+  model clients. `case0.py` — Task 1 and the eval CLI. `regrade.py` — re-grade
+  saved attempts.
+- `tasks/<task>/` — a task's reference program and check files.
+- `vendor/` — racer-check (the grader) and DASM's headers. `stella-core/` —
+  optional reference emulator (GPL).
+- `experiments/` — eval output, gitignored. Runs are never deleted or overwritten.
+
+## Conventions & Patterns
+
+- New work goes on a branch; PRs target `main`.
+- Task-specific code and data stay out of `grading.py` / `models.py`; a new
+  task adds a `tasks/<task>/` folder rather than copying `case0.py`'s grader.
+- Paths to the checkout and built tools come from `tbd.paths`.

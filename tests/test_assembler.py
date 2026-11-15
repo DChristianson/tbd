@@ -1,18 +1,15 @@
-"""Spec for Task 1's assembler contract (see docs/plan/roadmap.md).
-
-`tests/fixtures/red_background.asm` and `tbd.tools.assembler.assemble()` are
-both not yet written — these tests specify what they must satisfy once they
-are. Skipped rather than left to fail on import, so the suite is honest about
-being pre-implementation.
+"""Spec for Task 1's assembler contract (see docs/plan/roadmap.md):
+`tbd.tools.assembler.assemble()` turns `tasks/t1/red_background.asm` into a
+ROM, and reports a bad source as errors rather than a ROM.
 """
 
-from pathlib import Path
 
 import pytest
 
+from tbd.paths import HEADERS, TASKS
 from tbd.tools.assembler import assemble
 
-FIXTURE = Path(__file__).parent / "fixtures" / "red_background.asm"
+FIXTURE = TASKS / "t1" / "red_background.asm"
 
 pytestmark = pytest.mark.skipif(
     not FIXTURE.exists(),
@@ -22,7 +19,7 @@ pytestmark = pytest.mark.skipif(
 
 def test_assembles_without_errors():
     """A correct, hand-written source assembles clean: no errors, ROM bytes out."""
-    result = assemble(FIXTURE)
+    result = assemble(FIXTURE, include_dirs=[HEADERS])
     assert result.ok
     assert result.errors == []
     assert result.rom
@@ -31,7 +28,7 @@ def test_assembles_without_errors():
 
 def test_rom_is_a_standard_cartridge_size():
     """DASM should produce a ROM at one of the real Atari 2600 cart sizes."""
-    result = assemble(FIXTURE)
+    result = assemble(FIXTURE, include_dirs=[HEADERS])
     assert len(result.rom) in (2048, 4096)
 
 

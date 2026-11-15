@@ -41,8 +41,9 @@ class AssembleResult:
         return bool(self.rom) and not self.errors
 
 
-def assemble(source_path: Path) -> AssembleResult:
-    """Assemble a DASM source file into an Atari 2600 ROM."""
+def assemble(source_path: Path, include_dirs: list[Path] = ()) -> AssembleResult:
+    """Assemble a DASM source file into an Atari 2600 ROM. `include_dirs` are
+    searched (DASM's -I) after the source file's own directory."""
     # Resolve to absolute first: we run dasm with cwd set to the source
     # file's own directory (include/incbin paths resolve against the
     # process cwd, not the source file's location — confirmed by hand), and
@@ -55,7 +56,8 @@ def assemble(source_path: Path) -> AssembleResult:
     with tempfile.TemporaryDirectory() as tmp:
         rom_path = Path(tmp) / "out.bin"
         proc = subprocess.run(
-            [DASM_BIN, str(source_path), "-f3", f"-o{rom_path}", "-R"],
+            [DASM_BIN, str(source_path), "-f3", f"-o{rom_path}", "-R",
+             *(f"-I{Path(d).resolve()}" for d in include_dirs)],
             capture_output=True,
             text=True,
             cwd=source_path.parent,

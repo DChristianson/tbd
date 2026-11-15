@@ -99,23 +99,24 @@ binding technology.
 A separate top-level folder, sibling to `src/`, `tests/`, `docs/` — kept
 apart because it's a different license (GPL-2.0-or-later, inherited from
 Stella) from the rest of this repo (MIT), same reasoning as
-`tests/fixtures/vendor/atari2600/`, just a bigger instance of it:
+`vendor/atari2600/`, just a bigger instance of it:
 
 ```
 stella-core/
-  NOTICE.md              # license: GPL-2.0-or-later, distinct from repo LICENSE (MIT)
   CMakeLists.txt
+  README.md
   vendor/
+    README.md
     stella/               # vendored mainline Stella source — emucore, common
                            # (minus SDL files), os/libretro (minus the full
-                           # libretro.h ABI). See vendor/stella/NOTICE.md.
+                           # libretro.h ABI). License and exact version:
+                           # vendor/stella/NOTICE.md (the only NOTICE here).
   shim/
-    smoketest.cpp         # proof of concept — not the real shim (see below)
-    stella_core.*         # TODO: our API surface over StellaLIBRETRO +
-                           #   System/TIA direct access
-    protocol.*            # TODO: stdin/stdout command/response handling
-    main.cpp              # TODO: replaces smoketest.cpp
-  README.md
+    stella_core.*         # our API surface over StellaLIBRETRO + System/TIA
+                           #   direct access
+    main.cpp              # the stella_core binary: JSON-lines commands on
+                           #   stdin/stdout (Emulator Protocol v1)
+    smoketest.cpp         # the original proof of concept, still built
 ```
 
 `tbd.tools.emulator` stays in `src/tbd/`, MIT-licensed, and only ever talks

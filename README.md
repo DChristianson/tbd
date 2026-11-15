@@ -18,10 +18,11 @@ Work items are tracked in beads (`bd ready`).
 | Path | What it is | License |
 |---|---|---|
 | `src/tbd/tools/` | `assembler` (wraps DASM) and `emulator` (drives `stella-core`; used only by tests) | MIT |
-| `src/tbd/eval/` | `case0` (the Case 0 eval), `regrade`, `claude_client` | MIT |
+| `src/tbd/eval/` | `grading` (extract, assemble, racer-check, categorize), `models` / `claude_client` (Ollama / Claude), `case0` (Task 1 and the eval CLI), `regrade` | MIT |
 | `vendor/racer/` | `racer-check`: the grader. Simulator and property checker, from racer, with tbd's additions (see its `NOTICE.md`) | MIT |
 | `stella-core/` | **Optional.** Headless Stella 7.0c core: a reference emulator for cross-checking the grader, not used by the eval | GPL-2.0-or-later |
-| `tests/fixtures/` | Case 0 reference program (`red_background.asm`), its check files, and the vendored `vcs.h` / `macro.h` | MIT / GPL-2.0-or-later headers |
+| `tasks/t1/` | Case 0 / Task 1: reference program (`red_background.asm`) and its strict and relaxed check files | MIT |
+| `vendor/atari2600/` | DASM's `vcs.h` / `macro.h`, the standard headers every program includes | GPL-2.0-or-later |
 
 ## Building
 
@@ -152,13 +153,13 @@ but failed a property), `assemble_error`, `no_code`, `truncated`, `timeout`,
 `refusal`, `crash`, or `unsupported_opcode`.
 
 - **Strict check**
-  ([red_background.check.toml](tests/fixtures/red_background.check.toml)):
+  ([red_background.check.toml](tasks/t1/red_background.check.toml)):
   262-line frames; VSYNC starting on line 0 for 2 to 4 lines; nothing shown
   outside lines 40-231; every visible clock on those lines red. Red means
   `$42` to `$46`. A VSYNC of exactly 3 lines from the start of line 0 is also
   checked, but only recorded.
 - **Relaxed tier**
-  ([red_background.relaxed.check.toml](tests/fixtures/red_background.relaxed.check.toml)):
+  ([red_background.relaxed.check.toml](tasks/t1/red_background.relaxed.check.toml)):
   run when the strict check fails. 260-264 lines, and the 192-line red picture
   may start on lines 38-42. Failing strict and passing this is a **near
   miss**.

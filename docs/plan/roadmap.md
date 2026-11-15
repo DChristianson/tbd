@@ -60,7 +60,7 @@ So, decided (beads `tbd-818.9`, `tbd-818.12`):
 - **The grader is `racer-check`**, vendored into
   [vendor/racer/](../../vendor/racer/NOTICE.md) (MIT) and called as a binary,
   as tbd calls `dasm`. **Task specs grade with racer check files**
-  ([tests/fixtures/red_background.check.toml](../../tests/fixtures/red_background.check.toml)).
+  ([tasks/t1/red_background.check.toml](../../tasks/t1/red_background.check.toml)).
 - **Stella stays, as an optional reference emulator** for cross-checking the
   grader: `tests/test_emulator.py`, and a test that racer's LXA agrees with
   Stella's. The eval doesn't use it, and the build skips it on request
@@ -103,7 +103,7 @@ per-scanline color read, not an image-diff tool.
 Order of work from here:
 1. ✅ Author the fixture (`red_background.asm`) — by hand, not generated.
    Vendored `vcs.h`/`macro.h` from the local DASM install into
-   `tests/fixtures/vendor/atari2600/` to make it assemble (GPL-2.0-or-later,
+   `tests/fixtures/vendor/atari2600/` (now `vendor/atari2600/`) to make it assemble (GPL-2.0-or-later,
    see the `NOTICE.md` there — distinct from this repo's MIT license).
 2. ✅ Implement `assemble()` against DASM — `test_assembler.py` passes.
 3. ⏸️ Implement `run()` against an emulator — paused, still deciding *what*
@@ -162,7 +162,7 @@ Order of work from here:
    262 lines, 3 lines of VSYNC, and 192 contiguous unblanked lines, all red.
    The fixture also defines `NO_ILLEGAL_OPCODES` (racer's simulator rejected
    `CLEAN_START`'s `lxa` at the time; it runs it since 2026-11-15). Its racer
-   check file is `tests/fixtures/red_background.check.toml` and passes 101 of
+   check file is `tasks/t1/red_background.check.toml` and passes 101 of
    101 runs.
 6. ✅ (2026-11-15) Grading moved to `racer-check` (course correction above).
    The Stella tests in `tests/test_emulator.py` stay as a cross-check.

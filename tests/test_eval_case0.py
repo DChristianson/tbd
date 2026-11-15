@@ -1,13 +1,11 @@
 """Case 0 eval script: code extraction and grading (no model needed)."""
 
-from pathlib import Path
-
 import pytest
 
 from tbd.eval import case0
 from tbd.eval.case0 import Grade, categorize, extract_code, grade_program, red_retry_color
 
-FIXTURES = Path(__file__).parent / "fixtures"
+REFERENCE = case0.TASK_DIR / "red_background.asm"
 
 
 def test_extracts_longest_asm_block():
@@ -63,8 +61,7 @@ def test_another_red_gets_a_retry_but_not_another_hue():
 
 @pytest.mark.skipif(not case0.RACER_CHECK.exists(), reason="racer-check not built")
 def test_reference_grades_as_pass(tmp_path):
-    asm, grade = grade_program((FIXTURES / "red_background.asm").read_text()
-                               .replace('include "vendor/atari2600/', 'include "'), tmp_path)
+    asm, grade = grade_program(_ref(), tmp_path)
     assert asm["ok"]
     assert grade.ok, grade.detail
     assert grade.color == 0x42
@@ -72,7 +69,7 @@ def test_reference_grades_as_pass(tmp_path):
 
 @pytest.mark.skipif(not case0.RACER_CHECK.exists(), reason="racer-check not built")
 def test_other_red_is_accepted(tmp_path):
-    src = (FIXTURES / "red_background.asm").read_text().replace('include "vendor/atari2600/', 'include "')
+    src = _ref()
     _, grade = grade_program(src.replace("lda #$42", "lda #$46"), tmp_path)
     assert grade.ok, grade.detail
     assert grade.color == 0x46
@@ -80,7 +77,7 @@ def test_other_red_is_accepted(tmp_path):
 
 @pytest.mark.skipif(not case0.RACER_CHECK.exists(), reason="racer-check not built")
 def test_red_outside_the_range_fails(tmp_path):
-    src = (FIXTURES / "red_background.asm").read_text().replace('include "vendor/atari2600/', 'include "')
+    src = _ref()
     _, grade = grade_program(src.replace("lda #$42", "lda #$48"), tmp_path)
     assert not grade.ok and grade.failed == ["background"]
 
@@ -168,7 +165,6 @@ def test_color_retry_happens_alongside_other_failures():
 
 
 def test_anthropic_default_max_tokens(monkeypatch):
-    seen = {}
     def fake_main_args(argv):
         p = case0.build_parser()
         return p.parse_args(argv)
@@ -181,7 +177,7 @@ def test_anthropic_default_max_tokens(monkeypatch):
 
 
 def _ref():
-    return (FIXTURES / "red_background.asm").read_text().replace('include "vendor/atari2600/', 'include "')
+    return REFERENCE.read_text()
 
 
 # One vertical-blank and one overscan line short: 260 lines, picture on 39-230.

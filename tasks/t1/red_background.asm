@@ -11,8 +11,8 @@
 
     processor 6502
 NO_ILLEGAL_OPCODES = 1      ; CLEAN_START without lxa (see tbd-dpu.10)
-    include "vendor/atari2600/vcs.h"
-    include "vendor/atari2600/macro.h"
+    include "vcs.h"
+    include "macro.h"
 
     SEG CODE
     ORG $F000

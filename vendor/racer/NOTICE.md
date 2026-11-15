@@ -39,7 +39,7 @@ data); the `racer-crosscheck` binary (needs the other emulators). The
 unmodified upstream `racer-check` (racer `b54543d`) give byte-identical
 `--json` reports on all 40 of racer's own reference check files, all passing
 (racer's `reference/` built with `DASM_INCLUDE` pointed at
-`tests/fixtures/vendor/atari2600`). The changes add capability without
+tbd's `vcs.h`/`macro.h`, now `vendor/atari2600`). The changes add capability without
 changing an existing result. The
 workspace `Cargo.toml` here is new, listing only these three crates. To update: copy the same files from a newer racer commit,
 update the commit above, and rebuild.
