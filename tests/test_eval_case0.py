@@ -54,7 +54,11 @@ def test_another_red_gets_a_retry_but_not_another_hue():
         return Grade(False, "output_mismatch", failed=["background"],
                      detail=f"background: frame 2, line 40, clock 68: color ${color}; required color $42")
     assert red_retry_color(bg("44")) == 0x44
+    assert red_retry_color(bg("46")) == 0x46
     assert red_retry_color(bg("84")) is None
+    # Same hue, outside the accepted $42-$46 range.
+    assert red_retry_color(bg("40")) is None
+    assert red_retry_color(bg("48")) is None
 
 
 @pytest.mark.skipif(not case0.RACER_CHECK.exists(), reason="racer-check not built")
@@ -72,6 +76,13 @@ def test_other_red_is_accepted(tmp_path):
     _, grade = grade_program(src.replace("lda #$42", "lda #$46"), tmp_path)
     assert grade.ok, grade.detail
     assert grade.color == 0x46
+
+
+@pytest.mark.skipif(not case0.RACER_CHECK.exists(), reason="racer-check not built")
+def test_red_outside_the_range_fails(tmp_path):
+    src = (FIXTURES / "red_background.asm").read_text().replace('include "vendor/atari2600/', 'include "')
+    _, grade = grade_program(src.replace("lda #$42", "lda #$48"), tmp_path)
+    assert not grade.ok and grade.failed == ["background"]
 
 
 @pytest.mark.skipif(not case0.RACER_CHECK.exists(), reason="racer-check not built")

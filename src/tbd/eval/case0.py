@@ -65,9 +65,11 @@ PROMPT = (
     "Reply with the complete program in a single ```asm code block."
 )
 
-# The canonical prompt says "red", not a value: accept any luminance of hue 4
-# ($40-$4E, NTSC red). Variants (tbd-dpu.2) pin exact values.
-RED_HUE = 0x40
+# The canonical prompt says "red", not a value: accept $42-$46 inclusive
+# (NTSC hue 4, the three luminances around the reference's $42; the TIA
+# ignores bit 0, so $43/$45 show as $42/$44). Variants (tbd-dpu.2) pin exact
+# values.
+ACCEPTED_COLORS = range(0x42, 0x47)
 DEFAULT_COLOR = 0x42
 
 CATEGORIES = ("pass", "timeout", "truncated", "refusal", "no_code", "assemble_error",
@@ -202,7 +204,7 @@ def red_retry_color(grade: Grade) -> int | None:
     if not m:
         return None
     color = int(m.group(1), 16)
-    return color if color & 0xF0 == RED_HUE and color != DEFAULT_COLOR else None
+    return color if color in ACCEPTED_COLORS and color != DEFAULT_COLOR else None
 
 
 def run_racer_check(workdir: Path, color: int) -> dict:
@@ -521,7 +523,7 @@ def main(argv: list[str] | None = None) -> int:
         "num_ctx": None if anthropic_run else (args.num_ctx or max(16384, args.max_tokens + 4096)),
         "request_timeout_s": args.timeout, "prompt": PROMPT, "grader": "racer-check",
         "check_template": str(CHECK_TEMPLATE.relative_to(ROOT)),
-        "accepted_colors": "0x40-0x4E (hue 4, NTSC red)",
+        "accepted_colors": [f"0x{c:02x}" for c in ACCEPTED_COLORS],
     }
     manifest = exp_dir / "manifest.json"
     if not manifest.exists():

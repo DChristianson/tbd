@@ -41,6 +41,8 @@ name = "blanking"
 kind = "blank_outside"
 lines = [40, 232]
 
+# tbd.eval.case0 accepts $42-$46 here: if only the background fails and the
+# color shown is in that range, it re-checks with that color.
 [[property]]
 name = "background"
 kind = "constant_output"
