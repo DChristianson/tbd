@@ -8,11 +8,25 @@ Task 2 arrives (beads tbd-818.3, tbd-818.5).
     python -m tbd.eval.case0 --model llama3.1 --samples 10
     python -m tbd.eval.case0 --model qwen3.5 --samples 10 --mode tool-feedback
 
-Output, as in docs/design/execution.md:
+Output, one folder per job and one per attempt. Runs are never deleted or
+overwritten: an existing job folder is an error; pick a new --experiment.
 
     experiments/{experiment_id}/manifest.json
-    experiments/{experiment_id}/jobs/{job_id}/{config.json, attempts.jsonl,
-                                               metrics.json, artifacts/}
+    experiments/{experiment_id}/jobs/{job_id}/
+        config.json            the cell: model, digest, options, prompt, grader
+        model_template.txt     the chat template Ollama wraps messages in
+        metrics.json           status (running / completed / interrupted / failed) + results
+        attempts.jsonl         one line per attempt (same as each attempt.json)
+        sample-NN/attempt-N/
+            request.json       exact body sent to Ollama
+            response.json      Ollama's raw reply (content, thinking, timings, done_reason)
+            response.md        the reply text
+            prog.asm           extracted program (absent if none)
+            assemble.json      DASM result
+            check-0xNN.toml    check file used, per color tried
+            check-0xNN.result.json  racer-check's raw JSON
+            attempt.json       the attempt record
+            error.txt          if the request failed
 """
 
 from __future__ import annotations
@@ -140,12 +154,17 @@ def run_racer_check(workdir: Path, color: int) -> dict:
     template = CHECK_TEMPLATE.read_text()
     check = re.sub(r"(?m)^color = 0x[0-9a-fA-F]+$", f"color = 0x{color:02x}", template)
     check = check.replace('rom = "build/red_background.bin"', 'rom = "build/prog.bin"')
-    (workdir / "check.toml").write_text(check)
-    proc = subprocess.run([str(RACER_CHECK), "--json", "check.toml"], cwd=workdir,
+    name = f"check-0x{color:02x}"
+    (workdir / f"{name}.toml").write_text(check)
+    proc = subprocess.run([str(RACER_CHECK), "--json", f"{name}.toml"], cwd=workdir,
                           capture_output=True, text=True, timeout=300)
+    raw = {"returncode": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}
     if proc.returncode == 2 or not proc.stdout.strip():
-        return {"passed": False, "error": (proc.stderr or proc.stdout).strip()}
-    return json.loads(proc.stdout.splitlines()[0])
+        report = {"passed": False, "error": (proc.stderr or proc.stdout).strip()}
+    else:
+        report = json.loads(proc.stdout.splitlines()[0])
+    (workdir / f"{name}.result.json").write_text(json.dumps({"report": report, "raw": raw}, indent=2))
+    return report
 
 
 def grade_program(code: str, workdir: Path) -> tuple[dict, Grade]:
@@ -166,6 +185,9 @@ def grade_program(code: str, workdir: Path) -> tuple[dict, Grade]:
             out.append(m)
         return out
     asm_rec = {"ok": asm.ok, "errors": short(asm.errors), "warnings": short(asm.warnings)}
+    (workdir / "assemble.json").write_text(json.dumps(
+        {**asm_rec, "rom_bytes": len(asm.rom) if asm.rom else 0,
+         "errors_raw": asm.errors, "warnings_raw": asm.warnings}, indent=2))
     if not asm.ok:
         return asm_rec, Grade(False, "assemble_error", detail="; ".join(asm_rec["errors"][:5]))
     (workdir / "build").mkdir(exist_ok=True)
@@ -186,16 +208,32 @@ def grade_program(code: str, workdir: Path) -> tuple[dict, Grade]:
 # ---------------------------------------------------------------- model
 
 def ollama_chat(model: str, messages: list[dict], *, temperature: float, seed: int,
-                think: bool | None, max_tokens: int = MAX_OUTPUT_TOKENS) -> dict:
+                think: bool | None, max_tokens: int = MAX_OUTPUT_TOKENS,
+                save_to: Path | None = None) -> dict:
     body = {"model": model, "messages": messages, "stream": False,
             "options": {"temperature": temperature, "seed": seed, "num_ctx": 16384,
                         "num_predict": max_tokens}}
     if think is not None:
         body["think"] = think
+    if save_to:  # exactly what goes over the wire, and exactly what comes back
+        save_to.mkdir(parents=True, exist_ok=True)
+        (save_to / "request.json").write_text(json.dumps(body, indent=2))
     req = urllib.request.Request(f"{OLLAMA}/api/chat", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S) as r:
-        return json.load(r)
+        raw = r.read()
+    if save_to:
+        (save_to / "response.json").write_text(json.dumps(json.loads(raw), indent=2))
+    return json.loads(raw)
+
+
+def model_template(model: str) -> str:
+    """The chat template Ollama wraps the messages in (and any default system prompt)."""
+    req = urllib.request.Request(f"{OLLAMA}/api/show", data=json.dumps({"model": model}).encode(),
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        info = json.load(r)
+    return f"# TEMPLATE\n{info.get('template', '')}\n\n# SYSTEM (model default)\n{info.get('system', '')}\n"
 
 
 def model_digest(model: str) -> str | None:
@@ -232,16 +270,19 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
     budget = 1 if args.mode == "one-shot" else 1 + args.retries
     for attempt_no in range(1, budget + 1):
         t0 = time.time()
+        workdir = job_dir / f"sample-{sample:02d}" / f"attempt-{attempt_no}"
         try:
             resp = ollama_chat(args.model, messages, temperature=args.temperature, seed=seed,
-                               think=args.think, max_tokens=args.max_tokens)
+                               think=args.think, max_tokens=args.max_tokens,
+                               save_to=workdir)
         except (TimeoutError, OSError) as e:  # urllib wraps timeouts as URLError(OSError)
             resp = {"error": f"{type(e).__name__}: {e}"}
+            workdir.mkdir(parents=True, exist_ok=True)
+            (workdir / "error.txt").write_text(resp["error"] + "\n")
         wall_ms = int((time.time() - t0) * 1000)
         text = resp.get("message", {}).get("content", "")
         thinking = resp.get("message", {}).get("thinking", "")
         code = extract_code(text)
-        workdir = job_dir / "artifacts" / f"sample-{sample:02d}" / f"attempt-{attempt_no}"
         empty = {"ok": False, "errors": [], "warnings": []}
         if "error" in resp:
             asm_rec, grade = empty, Grade(False, "timeout", detail=resp["error"])
@@ -265,6 +306,7 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
                        if resp.get("eval_duration") else None},
             "wall_ms": wall_ms,
         }
+        (workdir / "attempt.json").write_text(json.dumps(record, indent=2))
         log.write(json.dumps(record) + "\n")
         log.flush()
         print(f"  sample {sample} attempt {attempt_no}: {grade.category}"
@@ -304,7 +346,9 @@ def main(argv: list[str] | None = None) -> int:
     exp_dir = args.out / exp_id
     job_id = f"{args.model.replace(':', '_').replace('/', '_')}-t1-canonical-none-{args.mode}"
     job_dir = exp_dir / "jobs" / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
+    if job_dir.exists():
+        p.error(f"{job_dir} already exists; runs are never overwritten. Use a new --experiment.")
+    job_dir.mkdir(parents=True)
 
     config = {
         "model": args.model, "model_digest": model_digest(args.model), "runtime": "ollama",
@@ -321,29 +365,49 @@ def main(argv: list[str] | None = None) -> int:
         manifest.write_text(json.dumps({"experiment_id": exp_id, "created": stamp,
                                         "git_sha": git_sha()}, indent=2))
     (job_dir / "config.json").write_text(json.dumps(config, indent=2))
+    (job_dir / "model_template.txt").write_text(model_template(args.model))
 
-    print(f"{exp_id}/{job_id}: {args.samples} samples", flush=True)
+    print(f"{exp_id}/{job_id}: {args.samples} samples -> {job_dir}", flush=True)
     t0 = time.time()
-    results = []
-    with open(job_dir / "attempts.jsonl", "a") as log:
-        for s in range(args.samples):
-            results.append(run_job(args, s, job_dir, log))
+    results: list[dict] = []
+    status = "running"
+    write_metrics(job_dir, args, results, status, t0)
+    try:
+        with open(job_dir / "attempts.jsonl", "a") as log:
+            for s in range(args.samples):
+                results.append(run_job(args, s, job_dir, log))
+                write_metrics(job_dir, args, results, status, t0)
+        status = "completed"
+    except KeyboardInterrupt:
+        status = "interrupted"
+        raise
+    except BaseException:
+        status = "failed"
+        raise
+    finally:
+        metrics = write_metrics(job_dir, args, results, status, t0)
+        print(json.dumps(metrics, indent=2))
+    return 0
 
+
+def write_metrics(job_dir: Path, args, results: list[dict], status: str, t0: float) -> dict:
+    done = len(results)
     passed = sum(r["passed"] for r in results)
     firsts: dict[str, int] = {}
     for r in results:
         key = "pass" if r["passed"] and r["attempts"] == 1 else (r["first_category"] or "pass")
         firsts[key] = firsts.get(key, 0) + 1
     metrics = {
-        "samples": args.samples, "passed": passed, "pass_rate": passed / args.samples,
-        "pass_at_1_first_attempt": sum(r["passed"] and r["attempts"] == 1 for r in results) / args.samples,
+        "status": status, "samples_planned": args.samples, "samples_done": done,
+        "passed": passed, "pass_rate": passed / done if done else None,
+        "pass_at_1_first_attempt": (sum(r["passed"] and r["attempts"] == 1 for r in results) / done
+                                    if done else None),
         "first_attempt_categories": firsts,
         "attempts_total": sum(r["attempts"] for r in results),
         "wall_s": round(time.time() - t0, 1),
     }
     (job_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
-    print(json.dumps(metrics, indent=2))
-    return 0
+    return metrics
 
 
 if __name__ == "__main__":
