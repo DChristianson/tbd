@@ -209,9 +209,12 @@ def grade_program(code: str, workdir: Path) -> tuple[dict, Grade]:
 
 def ollama_chat(model: str, messages: list[dict], *, temperature: float, seed: int,
                 think: bool | None, max_tokens: int = MAX_OUTPUT_TOKENS,
+                num_ctx: int | None = None, timeout_s: int = REQUEST_TIMEOUT_S,
                 save_to: Path | None = None) -> dict:
+    # The context window must hold the conversation plus the whole output.
+    num_ctx = num_ctx or max(16384, max_tokens + 4096)
     body = {"model": model, "messages": messages, "stream": False,
-            "options": {"temperature": temperature, "seed": seed, "num_ctx": 16384,
+            "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx,
                         "num_predict": max_tokens}}
     if think is not None:
         body["think"] = think
@@ -220,7 +223,7 @@ def ollama_chat(model: str, messages: list[dict], *, temperature: float, seed: i
         (save_to / "request.json").write_text(json.dumps(body, indent=2))
     req = urllib.request.Request(f"{OLLAMA}/api/chat", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S) as r:
+    with urllib.request.urlopen(req, timeout=timeout_s) as r:
         raw = r.read()
     if save_to:
         (save_to / "response.json").write_text(json.dumps(json.loads(raw), indent=2))
@@ -274,7 +277,7 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
         try:
             resp = ollama_chat(args.model, messages, temperature=args.temperature, seed=seed,
                                think=args.think, max_tokens=args.max_tokens,
-                               save_to=workdir)
+                               num_ctx=args.num_ctx, timeout_s=args.timeout, save_to=workdir)
         except (TimeoutError, OSError) as e:  # urllib wraps timeouts as URLError(OSError)
             resp = {"error": f"{type(e).__name__}: {e}"}
             workdir.mkdir(parents=True, exist_ok=True)
@@ -329,7 +332,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--mode", choices=("one-shot", "tool-feedback"), default="one-shot")
     p.add_argument("--retries", type=int, default=3, help="tool-feedback retries after the first")
     p.add_argument("--temperature", type=float, default=0.7)
-    p.add_argument("--max-tokens", type=int, default=MAX_OUTPUT_TOKENS)
+    p.add_argument("--max-tokens", type=int, default=MAX_OUTPUT_TOKENS,
+                   help="output cap, including a reasoning model's thinking")
+    p.add_argument("--num-ctx", type=int, default=None,
+                   help="context window (default: max(16384, max-tokens + 4096))")
+    p.add_argument("--timeout", type=int, default=REQUEST_TIMEOUT_S, help="seconds per request")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--think", choices=("on", "off", "default"), default="default",
                    help="Ollama think flag for reasoning models")
@@ -356,7 +363,8 @@ def main(argv: list[str] | None = None) -> int:
         "mode": args.mode, "samples": args.samples, "temperature": args.temperature,
         "seed": args.seed, "retries": args.retries if args.mode == "tool-feedback" else 0,
         "think": args.think, "max_tokens": args.max_tokens,
-        "request_timeout_s": REQUEST_TIMEOUT_S, "prompt": PROMPT, "grader": "racer-check",
+        "num_ctx": args.num_ctx or max(16384, args.max_tokens + 4096),
+        "request_timeout_s": args.timeout, "prompt": PROMPT, "grader": "racer-check",
         "check_template": str(CHECK_TEMPLATE.relative_to(ROOT)),
         "accepted_colors": "0x40-0x4E (hue 4, NTSC red)",
     }
