@@ -60,18 +60,29 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-_Add your build and test commands here_
+See [README.md](README.md) for building DASM, racer-check and (optionally)
+stella-core, in the dev container or on a Mac.
 
 ```bash
-# Example:
-# npm install
-# npm test
+pip install -e '.[test]'      # '.[test,eval]' to run evals against Claude
+python -m pytest              # racer-check / stella-core tests skip if not built
 ```
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+- `src/tbd/tools/` — `assembler` (DASM) and `emulator` (stella-core, tests only).
+- `src/tbd/eval/grading.py` — task-agnostic: extract code, assemble, run a
+  racer-check check file, categorize. `models.py` / `claude_client.py` — the
+  model clients. `case0.py` — Task 1 and the eval CLI. `regrade.py` — re-grade
+  saved attempts.
+- `tasks/<task>/` — a task's reference program and check files.
+- `vendor/` — racer-check (the grader) and DASM's headers. `stella-core/` —
+  optional reference emulator (GPL).
+- `experiments/` — eval output, gitignored. Runs are never deleted or overwritten.
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+- New work goes on a branch; PRs target `main`.
+- Task-specific code and data stay out of `grading.py` / `models.py`; a new
+  task adds a `tasks/<task>/` folder rather than copying `case0.py`'s grader.
+- Paths to the checkout and built tools come from `tbd.paths`.
