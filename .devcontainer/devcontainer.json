@@ -19,16 +19,8 @@
     "--add-host=gastownhall-eventsapi.com=::1"
   ],
 
-  // Runs on the host before the container is created. The projects bind mount
-  // below needs its source folder to exist, and it only exists on a machine
-  // that has used it; creating it empty makes the mount harmless elsewhere.
-  "initializeCommand": ["mkdir", "-p", "${localWorkspaceFolder}/.snagboat/claude-projects"],
-
   // Claude Code's login and settings live in a Docker volume, NOT your Mac's
   // ~/.claude. It survives container rebuilds; each project gets its own.
-  // Its projects/ folder (session transcripts, auto-memory) is bind-mounted
-  // from .snagboat/claude-projects in the workspace (gitignored), so tools on
-  // the host such as snagboat can read it.
   "mounts": [
     "source=claude-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
     "source=${localWorkspaceFolder}/.snagboat/claude-projects,target=/home/vscode/.claude/projects,type=bind"

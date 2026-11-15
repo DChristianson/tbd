@@ -70,12 +70,6 @@ The plan of record lives in beads. `.beads/config.yaml`, `metadata.json` and
 `.claude/` is gitignored here, as in snagboat, because it also holds
 machine-specific hooks.
 
-Claude Code's `~/.claude/projects` (session transcripts and auto-memory) is
-bind-mounted from `.snagboat/claude-projects` in the workspace, also
-gitignored, so snagboat on the host can read it. `initializeCommand` creates
-the folder on the host if it's missing, so the container starts on a machine
-without snagboat too; there the folder just holds that machine's transcripts.
-
 Usage: `bd ready`, `bd show <id>`, `bd update <id> --claim`, `bd close <id>`.
 The experiment grid behind the plan is in
 [docs/design/experiment-grid.md](../docs/design/experiment-grid.md).
