@@ -1,6 +1,6 @@
 """Claude through the Anthropic Messages API, for tbd.eval (beads tbd-1nx.6).
 
-Same contract as case0.ollama_chat: streamed, every event appended to
+Same contract as models.ollama_chat: streamed, every event appended to
 stream.jsonl as it arrives, response.md / thinking.md growing with it, a
 wall-clock deadline that keeps the partial output, and a returned dict using
 the same keys the attempt record reads (prompt_eval_count, eval_count,
@@ -28,6 +28,8 @@ import json
 import os
 import time
 from pathlib import Path
+
+from tbd.eval.models import RequestTimeout
 
 DEFAULT_MODEL = "claude-opus-5-5"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -57,9 +59,9 @@ def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float | None:
 
 
 def claude_chat(model: str, messages: list[dict], *, max_tokens: int, effort: str,
-                timeout_s: float, save_to: Path | None, timeout_error) -> dict:
-    """One streamed request. `timeout_error(message, partial)` builds the
-    exception raised at the deadline (case0.RequestTimeout)."""
+                timeout_s: float, save_to: Path | None) -> dict:
+    """One streamed request. Past the deadline it raises RequestTimeout,
+    carrying the partial output."""
     import anthropic  # optional dependency: pip install -e '.[eval]'
 
     body = {
@@ -107,12 +109,12 @@ def claude_chat(model: str, messages: list[dict], *, max_tokens: int, effort: st
                     flush()
                 if time.time() > deadline:
                     flush()
-                    raise timeout_error(f"deadline of {timeout_s:g}s passed after {events} events",
+                    raise RequestTimeout(f"deadline of {timeout_s:g}s passed after {events} events",
                                         partial())
             final = stream.get_final_message()
     except (anthropic.APITimeoutError, anthropic.APIConnectionError) as e:
         flush()
-        raise timeout_error(f"{type(e).__name__}: {e} after {events} events", partial()) from e
+        raise RequestTimeout(f"{type(e).__name__}: {e} after {events} events", partial()) from e
     finally:
         if stream_log:
             stream_log.close()

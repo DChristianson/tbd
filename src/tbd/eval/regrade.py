@@ -22,14 +22,17 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tbd.eval.case0 import ROOT, Grade, extract_code, grade_program
+# The grader is Task 1's (case0.grade_program): case0 is the only task so far.
+from tbd.eval.case0 import grade_program
+from tbd.eval.grading import Grade, extract_code
+from tbd.paths import ROOT
 
 
 def grader_version() -> dict:
     def git(*a):
         return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     return {"git_sha": git("rev-parse", "HEAD"),
-            "dirty": bool(git("status", "--porcelain", "--", "src", "tests/fixtures"))}
+            "dirty": bool(git("status", "--porcelain", "--", "src", "tasks", "vendor"))}
 
 
 def regrade(attempt_dir: Path) -> dict:

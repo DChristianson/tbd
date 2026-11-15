@@ -27,14 +27,15 @@ Confirmed by hand against the built binary:
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from tbd.paths import STELLA_CORE
+
 # TIA write-register address for COLUBK — same value as vcs.h's COLUBK
-# equate (0009), vendored at tests/fixtures/vendor/atari2600/vcs.h.
+# equate (0009), vendored at vendor/atari2600/vcs.h.
 _COLUBK_ADDR = 0x09
 _VSYNC_ADDR = 0x00
 _VBLANK_ADDR = 0x01
@@ -43,10 +44,7 @@ _SYNC_BLANK_BIT = 0x02  # D1 turns VSYNC / VBLANK on
 # TBD_STELLA_CORE overrides the binary location. The dev container sets it to
 # a separate build dir (stella-core/build-linux/) so a Linux build never
 # overwrites the host's macOS build in the shared stella-core/build/.
-_DEFAULT_BIN = Path(
-    os.environ.get("TBD_STELLA_CORE")
-    or Path(__file__).resolve().parents[3] / "stella-core" / "build" / "shim" / "stella_core"
-)
+_DEFAULT_BIN = STELLA_CORE
 
 
 @dataclass

@@ -6,7 +6,7 @@ Source: Stella (<https://stella-emu.github.io/>,
 matches the Homebrew `stella` 7.0c already used elsewhere in this project
 (see [docs/plan/stella-core-integration.md](../../../docs/plan/stella-core-integration.md)).
 **License:** GPL-2.0-or-later, same as DASM's vendored include files at
-`tests/fixtures/vendor/atari2600/`. This project's root `LICENSE` (MIT) does
+`vendor/atari2600/`. This project's root `LICENSE` (MIT) does
 not apply to anything under `stella-core/vendor/`.
 
 ## What was vendored, and why

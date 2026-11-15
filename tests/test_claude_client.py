@@ -7,7 +7,7 @@ import pytest
 
 anthropic = pytest.importorskip("anthropic")
 from tbd.eval import claude_client  # noqa: E402
-from tbd.eval.case0 import RequestTimeout  # noqa: E402
+from tbd.eval.models import RequestTimeout  # noqa: E402
 
 
 class Ev(NS):
@@ -67,7 +67,7 @@ def test_streams_to_disk_and_normalizes(tmp_path, monkeypatch):
     monkeypatch.setattr(anthropic, "Anthropic", fake_client(events, final, seen))
     r = claude_client.claude_chat("claude-opus-5-5", [{"role": "user", "content": "hi"}],
                                   max_tokens=64000, effort="high", timeout_s=60,
-                                  save_to=tmp_path, timeout_error=RequestTimeout)
+                                  save_to=tmp_path)
     assert "temperature" not in seen and "system" not in seen
     assert seen["messages"] == [{"role": "user", "content": "hi"}]
     assert r["message"]["content"] == "```asm\nlda #1\n```"
@@ -87,6 +87,6 @@ def test_deadline_keeps_partial_output(tmp_path, monkeypatch):
     with pytest.raises(RequestTimeout) as e:
         claude_client.claude_chat("claude-opus-5-5", [{"role": "user", "content": "hi"}],
                                   max_tokens=10, effort="high", timeout_s=-1,
-                                  save_to=tmp_path, timeout_error=RequestTimeout)
+                                  save_to=tmp_path)
     assert e.value.partial["message"]["content"] == "part"
     assert (tmp_path / "response.md").read_text() == "part"

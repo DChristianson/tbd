@@ -1,9 +1,11 @@
 """Case 0 local eval: prompt -> model -> dasm -> racer-check -> attempt log.
 
 The first grid cell (docs/design/experiment-grid.md): Task 1, no facts, a
-local Ollama model, one-shot or tool-feedback. Deliberately one task and one
-script; the spec format, harness and report get pulled out of this when
-Task 2 arrives (beads tbd-818.3, tbd-818.5).
+local Ollama model, one-shot or tool-feedback. This file is Task 1 and the
+runner; the task-agnostic parts are tbd.eval.grading (extract, assemble,
+racer-check, categorize) and tbd.eval.models / claude_client (the model).
+Task 1's data is in tasks/t1/. The task spec format and a generic harness
+come with Task 2 (beads tbd-818.3, tbd-818.5).
 
     python -m tbd.eval.case0 --model llama3.1 --samples 10
     python -m tbd.eval.case0 --model qwen3.5 --samples 10 --mode tool-feedback
@@ -33,29 +35,23 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
-import shutil
 import subprocess
 import time
-import urllib.request
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tbd.tools.assembler import assemble
+from tbd.eval import grading
+from tbd.eval.grading import (Grade, assemble_program, extract_code, property_names,
+                              run_racer_check, with_rom)
+from tbd.eval.models import (MAX_OUTPUT_TOKENS, REQUEST_TIMEOUT_S, RequestTimeout,
+                             model_digest, model_template, ollama_chat)
+from tbd.paths import RACER_CHECK, ROOT, TASKS
 
-ROOT = Path(__file__).resolve().parents[3]
-FIXTURES = ROOT / "tests" / "fixtures"
-HEADERS = FIXTURES / "vendor" / "atari2600"
-CHECK_TEMPLATE = FIXTURES / "red_background.check.toml"
+TASK_DIR = TASKS / "t1"
+CHECK_TEMPLATE = TASK_DIR / "red_background.check.toml"
 # Relaxed tier: run when the strict check fails; passing it is a near miss.
-RELAXED_TEMPLATE = FIXTURES / "red_background.relaxed.check.toml"
-RACER_CHECK = Path(
-    os.environ.get("TBD_RACER_CHECK")
-    or ROOT / "vendor" / "racer" / "target" / "release" / "racer-check"
-)
-OLLAMA = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+RELAXED_TEMPLATE = TASK_DIR / "red_background.relaxed.check.toml"
 
 TASK = "Create a kernel with stable framerate that sets the screen background to red."
 # Says which assembler and headers, so a wrong dialect isn't what's measured.
@@ -74,128 +70,16 @@ PROMPT = (
 ACCEPTED_COLORS = range(0x42, 0x47)
 DEFAULT_COLOR = 0x42
 
-CATEGORIES = ("pass", "timeout", "truncated", "refusal", "no_code", "assemble_error",
-              "unsupported_opcode", "crash", "timing", "output_mismatch")
-MAX_OUTPUT_TOKENS = 4096   # includes a reasoning model's thinking
-REQUEST_TIMEOUT_S = 600
-TIMING_PROPS = {"frame_length", "vsync", "vsync_span"}
 # Checked and recorded, but not part of the grade: racer's strict, line-aligned
 # 3-line VSYNC. The graded VSYNC property is vsync_span (a 2-4 line range).
 INFORMATIONAL = {"vsync"}
 
 
-# ---------------------------------------------------------------- extraction
-
-_FENCE = re.compile(r"```([^\n`]*)\n(.*?)```", re.DOTALL)
-_ASM_TAGS = {"asm", "assembly", "dasm", "6502", "s", "nasm", "ca65"}
-
-
-def extract_code(response: str) -> str | None:
-    """The program in the reply: the longest fenced block tagged as assembly,
-    else the longest fenced block of any kind, else None. Whether it is valid
-    6502 is left to DASM."""
-    response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL)
-    blocks = [(tag.strip().lower(), body) for tag, body in _FENCE.findall(response)]
-    tagged = [b for t, b in blocks if t in _ASM_TAGS]
-    pool = tagged or [b for _, b in blocks]
-    return max(pool, key=len) if pool else None
-
-
 # ---------------------------------------------------------------- grading
 
-@dataclass
-class Grade:
-    ok: bool
-    category: str
-    detail: str = ""
-    failed: list[str] = field(default_factory=list)
-    color: int | None = None
-    # Every property in the check file -> "pass" / "fail", once the program ran.
-    properties: dict[str, str] = field(default_factory=dict)
-    # Failed properties that don't count toward the grade (INFORMATIONAL).
-    informational_failed: list[str] = field(default_factory=list)
-    # The relaxed tier's result, when the strict check failed after running:
-    # {"passed", "failed", "properties", "color", "detail"}.
-    relaxed: dict | None = None
-
-    @property
-    def near_miss(self) -> bool:
-        """Failed the strict check, passed the relaxed tier."""
-        return not self.ok and bool(self.relaxed and self.relaxed["passed"])
-
-    def to_dict(self) -> dict:
-        return {"ok": self.ok, "category": self.category, "detail": self.detail,
-                "failed": self.failed, "informational_failed": self.informational_failed,
-                "color": self.color, "properties": self.properties,
-                "near_miss": self.near_miss, "relaxed": self.relaxed}
-
-
-def parse_failures(report: dict) -> dict[str, dict]:
-    """{property name: its first failure}, over every unexpected run."""
-    out: dict[str, dict] = {}
-    for run in report.get("unexpected", []):
-        for f in run.get("failures", []):
-            out.setdefault(f["property"], f)
-    return out
-
-
-def describe(f: dict) -> str:
-    where = ", ".join(f"{k} {f[k]}" for k in ("frame", "line", "clock") if k in f)
-    return f"{f['property']}: {where}: {f.get('observed')}; required {f.get('required')}"
-
-
-_PROPERTY_BLOCK = re.compile(r"(?ms)^\[\[property\]\]\n(.*?)(?=^\[\[|\Z)")
-
-
-def property_names(check_toml: str) -> list[str]:
-    """Each property's name (its `name`, else its `kind`), in file order."""
-    names = []
-    for block in _PROPERTY_BLOCK.findall(check_toml):
-        m = re.search(r'(?m)^name\s*=\s*"([^"]+)"', block) or \
-            re.search(r'(?m)^kind\s*=\s*"([^"]+)"', block)
-        if m:
-            names.append(m.group(1))
-    return names
-
-
 def categorize(report: dict, names: list[str] | None = None) -> Grade:
-    grade = _categorize(report)
-    if grade.category not in ("pass", "timing", "output_mismatch"):
-        return grade
-    if names:
-        grade.properties = {n: ("fail" if n in grade.failed else "pass") for n in names}
-    info = [n for n in grade.failed if n in INFORMATIONAL]
-    if info:
-        grade.informational_failed = info
-        grade.failed = [n for n in grade.failed if n not in INFORMATIONAL]
-        details = [d for d in grade.detail.split("; ") if not any(d.startswith(f"{n}:") for n in info)]
-        if not grade.failed:
-            grade.ok, grade.category = True, "pass"
-            grade.detail = "passed; informational: " + "; ".join(
-                d for d in grade.detail.split("; ") if any(d.startswith(f"{n}:") for n in info))
-        else:
-            grade.category = "timing" if TIMING_PROPS & set(grade.failed) else "output_mismatch"
-            grade.detail = "; ".join(details)
-    return grade
-
-
-def _categorize(report: dict) -> Grade:
-    if report.get("passed"):
-        return Grade(True, "pass")
-    errors = [r["error"] for r in report.get("unexpected", []) if r.get("error")]
-    if report.get("error"):
-        errors.insert(0, report["error"])
-    if errors:
-        # Undocumented opcodes are allowed (tbd-dpu.10). racer's simulator runs
-        # LXA (tbd-818.11); any other one it can't run is a grader gap, not a
-        # model failure.
-        category = "unsupported_opcode" if "UnknownOpcode" in errors[0] else "crash"
-        return Grade(False, category, detail=errors[0])
-    failures = parse_failures(report)
-    names = sorted(failures)
-    category = "timing" if TIMING_PROPS & set(names) else "output_mismatch"
-    return Grade(False, category, detail="; ".join(describe(failures[n]) for n in names),
-                 failed=names)
+    """grading.categorize with Task 1's informational properties."""
+    return grading.categorize(report, names, INFORMATIONAL)
 
 
 _SHOWN_COLOR = re.compile(r"color \$([0-9a-fA-F]{2})")
@@ -214,62 +98,40 @@ def red_retry_color(grade: Grade, prop: str = "background") -> int | None:
     return color if color in ACCEPTED_COLORS and color != DEFAULT_COLOR else None
 
 
-def run_racer_check(workdir: Path, color: int, template_path: Path = CHECK_TEMPLATE,
-                    prefix: str = "check") -> dict:
+def check_file(template_path: Path, color: int) -> str:
+    """A Task 1 check file asking for `color`, pointed at the attempt's ROM."""
     template = template_path.read_text()
-    check = re.sub(r"(?m)^color = 0x[0-9a-fA-F]+$", f"color = 0x{color:02x}", template)
-    check = check.replace('rom = "build/red_background.bin"', 'rom = "build/prog.bin"')
-    name = f"{prefix}-0x{color:02x}"
-    (workdir / f"{name}.toml").write_text(check)
-    proc = subprocess.run([str(RACER_CHECK), "--json", f"{name}.toml"], cwd=workdir,
-                          capture_output=True, text=True, timeout=300)
-    raw = {"returncode": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}
-    if proc.returncode == 2 or not proc.stdout.strip():
-        report = {"passed": False, "error": (proc.stderr or proc.stdout).strip()}
-    else:
-        report = json.loads(proc.stdout.splitlines()[0])
-    (workdir / f"{name}.result.json").write_text(json.dumps({"report": report, "raw": raw}, indent=2))
-    return report
+    return with_rom(re.sub(r"(?m)^color = 0x[0-9a-fA-F]+$", f"color = 0x{color:02x}", template))
+
+
+def check_red(workdir: Path, template_path: Path, prefix: str, prop: str, color: int) -> Grade:
+    """Run a check file at `color`. If `prop` failed showing another accepted
+    red, run it again at that red and keep that run when `prop` then passes."""
+    names = property_names(template_path.read_text())
+
+    def run(c: int) -> Grade:
+        report = run_racer_check(workdir, check_file(template_path, c), f"{prefix}-0x{c:02x}")
+        g = categorize(report, names)
+        g.color = c
+        return g
+
+    g = run(color)
+    other = red_retry_color(g, prop)
+    if other is not None and other != color:
+        retry = run(other)
+        if prop not in retry.failed:
+            g = retry
+    return g
 
 
 def grade_program(code: str, workdir: Path) -> tuple[dict, Grade]:
     """Assemble and check one program. Returns (assemble record, grade)."""
-    workdir.mkdir(parents=True, exist_ok=True)
-    for h in ("vcs.h", "macro.h"):
-        shutil.copy(HEADERS / h, workdir / h)
-    src = workdir / "prog.asm"
-    src.write_text(code)
-    asm = assemble(src)
-    # Errors name the file by absolute path; the model only needs "prog.asm".
-    strip = [str(src.resolve()), str(src)]
-    def short(msgs):
-        out = []
-        for m in msgs[:20]:
-            for prefix in strip:
-                m = m.replace(prefix, "prog.asm")
-            out.append(m)
-        return out
-    asm_rec = {"ok": asm.ok, "errors": short(asm.errors), "warnings": short(asm.warnings)}
-    (workdir / "assemble.json").write_text(json.dumps(
-        {**asm_rec, "rom_bytes": len(asm.rom) if asm.rom else 0,
-         "errors_raw": asm.errors, "warnings_raw": asm.warnings}, indent=2))
-    if not asm.ok:
-        return asm_rec, Grade(False, "assemble_error", detail="; ".join(asm_rec["errors"][:5]))
-    (workdir / "build").mkdir(exist_ok=True)
-    (workdir / "build" / "prog.bin").write_bytes(asm.rom)
-    names = property_names(CHECK_TEMPLATE.read_text())
-    grade = categorize(run_racer_check(workdir, DEFAULT_COLOR), names)
-    if grade.ok:
-        grade.color = DEFAULT_COLOR
-        return asm_rec, grade
-    other = red_retry_color(grade)
-    if other is not None:
-        regrade = categorize(run_racer_check(workdir, other), names)
-        if "background" not in regrade.failed:  # the color was the only background problem
-            regrade.color = other
-            grade = regrade
-            if grade.ok:
-                return asm_rec, grade
+    asm_rec, failed = assemble_program(code, workdir)
+    if failed:
+        return asm_rec, failed
+    grade = check_red(workdir, CHECK_TEMPLATE, "check", "background", DEFAULT_COLOR)
+    if not grade.ok and grade.color == DEFAULT_COLOR:
+        grade.color = None  # recorded only when a red was accepted
     if grade.category in ("timing", "output_mismatch"):
         grade.relaxed = grade_relaxed(workdir, grade.color or DEFAULT_COLOR)
     return asm_rec, grade
@@ -277,120 +139,12 @@ def grade_program(code: str, workdir: Path) -> tuple[dict, Grade]:
 
 def grade_relaxed(workdir: Path, color: int) -> dict:
     """The relaxed tier, with the same $42-$46 color handling as the strict one."""
-    names = property_names(RELAXED_TEMPLATE.read_text())
-
-    def run(c: int) -> Grade:
-        g = categorize(run_racer_check(workdir, c, RELAXED_TEMPLATE, "relaxed"), names)
-        g.color = c
-        return g
-
-    g = run(color)
-    other = red_retry_color(g, "picture")
-    if other is not None and other != color:
-        retry = run(other)
-        if "picture" not in retry.failed:
-            g = retry
+    g = check_red(workdir, RELAXED_TEMPLATE, "relaxed", "picture", color)
     return {"passed": g.ok, "failed": g.failed, "properties": g.properties,
             "color": g.color, "detail": g.detail}
 
 
 # ---------------------------------------------------------------- model
-
-class RequestTimeout(Exception):
-    """The request ran past its wall-clock deadline. Carries what arrived."""
-
-    def __init__(self, message: str, partial: dict):
-        super().__init__(message)
-        self.partial = partial
-
-
-def ollama_chat(model: str, messages: list[dict], *, temperature: float, seed: int,
-                think: bool | None, max_tokens: int = MAX_OUTPUT_TOKENS,
-                num_ctx: int | None = None, timeout_s: float = REQUEST_TIMEOUT_S,
-                save_to: Path | None = None) -> dict:
-    """Streamed chat request. Every chunk is appended to stream.jsonl as it
-    arrives, and response.md / thinking.md grow with it, so a timeout or an
-    interruption keeps everything generated so far. `timeout_s` is a total
-    wall-clock deadline for the whole request."""
-    # The context window must hold the conversation plus the whole output.
-    num_ctx = num_ctx or max(16384, max_tokens + 4096)
-    body = {"model": model, "messages": messages, "stream": True,
-            "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx,
-                        "num_predict": max_tokens}}
-    if think is not None:
-        body["think"] = think
-    if save_to:
-        save_to.mkdir(parents=True, exist_ok=True)
-        (save_to / "request.json").write_text(json.dumps(body, indent=2))
-    content, thinking, chunks, final = [], [], 0, None
-    deadline = time.time() + timeout_s
-
-    def partial() -> dict:
-        return {"message": {"role": "assistant", "content": "".join(content),
-                            "thinking": "".join(thinking)},
-                "chunks": chunks, "done": False}
-
-    def flush():
-        if save_to:
-            (save_to / "response.md").write_text("".join(content))
-            if thinking:
-                (save_to / "thinking.md").write_text("".join(thinking))
-
-    req = urllib.request.Request(f"{OLLAMA}/api/chat", data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"})
-    stream_log = open(save_to / "stream.jsonl", "a") if save_to else None
-    try:
-        # Socket timeout bounds a silent server; the loop enforces the deadline.
-        with urllib.request.urlopen(req, timeout=max(1.0, min(timeout_s, 60))) as r:
-            for line in r:
-                if stream_log:
-                    stream_log.write(line.decode())
-                    stream_log.flush()
-                chunk = json.loads(line)
-                chunks += 1
-                msg = chunk.get("message", {})
-                content.append(msg.get("content", ""))
-                thinking.append(msg.get("thinking", "") or "")
-                if chunks % 20 == 0:
-                    flush()
-                if chunk.get("done"):
-                    final = chunk
-                    break
-                if time.time() > deadline:
-                    raise RequestTimeout(f"deadline of {timeout_s:g}s passed after {chunks} chunks",
-                                         partial())
-    except (TimeoutError, OSError) as e:  # socket timeout, connection errors
-        flush()
-        raise RequestTimeout(f"{type(e).__name__}: {e} after {chunks} chunks", partial()) from e
-    except RequestTimeout:
-        flush()
-        raise
-    finally:
-        if stream_log:
-            stream_log.close()
-    flush()
-    resp = {**final, "message": partial()["message"], "chunks": chunks}
-    if save_to:
-        (save_to / "response.json").write_text(json.dumps(resp, indent=2))
-    return resp
-
-
-def model_template(model: str) -> str:
-    """The chat template Ollama wraps the messages in (and any default system prompt)."""
-    req = urllib.request.Request(f"{OLLAMA}/api/show", data=json.dumps({"model": model}).encode(),
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        info = json.load(r)
-    return f"# TEMPLATE\n{info.get('template', '')}\n\n# SYSTEM (model default)\n{info.get('system', '')}\n"
-
-
-def model_digest(model: str) -> str | None:
-    with urllib.request.urlopen(f"{OLLAMA}/api/tags", timeout=30) as r:
-        for m in json.load(r)["models"]:
-            if m["name"] == model or m["name"] == f"{model}:latest":
-                return m["digest"]
-    return None
-
 
 def feedback(asm_rec: dict, grade: Grade) -> str:
     if grade.category == "no_code":
@@ -483,7 +237,7 @@ def chat(args, messages: list[dict], seed: int, workdir: Path) -> dict:
         from tbd.eval.claude_client import claude_chat
         return claude_chat(args.model, messages, max_tokens=effective_max_tokens(args),
                            effort=args.effort,
-                           timeout_s=args.timeout, save_to=workdir, timeout_error=RequestTimeout)
+                           timeout_s=args.timeout, save_to=workdir)
     return ollama_chat(args.model, messages, temperature=args.temperature, seed=seed,
                        think=args.think, max_tokens=effective_max_tokens(args),
                        num_ctx=args.num_ctx, timeout_s=args.timeout, save_to=workdir)
