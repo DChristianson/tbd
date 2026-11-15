@@ -22,8 +22,7 @@
   // Claude Code's login and settings live in a Docker volume, NOT your Mac's
   // ~/.claude. It survives container rebuilds; each project gets its own.
   "mounts": [
-    "source=claude-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
-    "source=${localWorkspaceFolder}/.snagboat/claude-projects,target=/home/vscode/.claude/projects,type=bind"
+    "source=claude-config-${devcontainerId},target=/home/vscode/.claude,type=volume"
   ],
 
   "containerEnv": {
