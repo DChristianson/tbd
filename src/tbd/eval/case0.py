@@ -197,10 +197,12 @@ _SHOWN_COLOR = re.compile(r"color \$([0-9a-fA-F]{2})")
 
 
 def red_retry_color(grade: Grade) -> int | None:
-    """If only the background failed, and it showed another red, that red."""
-    if grade.failed != ["background"]:
+    """If the background failed showing another accepted red, that red.
+    Independent of whatever else failed."""
+    if "background" not in grade.failed:
         return None
-    m = _SHOWN_COLOR.search(grade.detail.split("; required")[0])
+    start = grade.detail.find("background:")
+    m = _SHOWN_COLOR.search(grade.detail[start:].split("; required")[0]) if start >= 0 else None
     if not m:
         return None
     color = int(m.group(1), 16)
@@ -257,7 +259,7 @@ def grade_program(code: str, workdir: Path) -> tuple[dict, Grade]:
     other = red_retry_color(grade)
     if other is not None:
         regrade = categorize(run_racer_check(workdir, other), names)
-        if regrade.ok:
+        if "background" not in regrade.failed:  # the color was the only background problem
             regrade.color = other
             return asm_rec, regrade
     return asm_rec, grade
@@ -450,14 +452,26 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
 def chat(args, messages: list[dict], seed: int, workdir: Path) -> dict:
     if args.provider == "anthropic":
         from tbd.eval.claude_client import claude_chat
-        return claude_chat(args.model, messages, max_tokens=args.max_tokens, effort=args.effort,
+        return claude_chat(args.model, messages, max_tokens=effective_max_tokens(args),
+                           effort=args.effort,
                            timeout_s=args.timeout, save_to=workdir, timeout_error=RequestTimeout)
     return ollama_chat(args.model, messages, temperature=args.temperature, seed=seed,
-                       think=args.think, max_tokens=args.max_tokens,
+                       think=args.think, max_tokens=effective_max_tokens(args),
                        num_ctx=args.num_ctx, timeout_s=args.timeout, save_to=workdir)
 
 
-def main(argv: list[str] | None = None) -> int:
+# Claude requests stream, so a large cap is safe and only what's used is billed;
+# 4096 truncated Claude Haiku 5.5 mid-thinking. Local models keep 4096.
+ANTHROPIC_MAX_TOKENS = 64000
+
+
+def effective_max_tokens(args) -> int:
+    if args.max_tokens:
+        return args.max_tokens
+    return ANTHROPIC_MAX_TOKENS if args.provider == "anthropic" else MAX_OUTPUT_TOKENS
+
+
+def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--provider", choices=("ollama", "anthropic"), default="ollama")
     p.add_argument("--model", required=True)
@@ -467,8 +481,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--mode", choices=("one-shot", "tool-feedback"), default="one-shot")
     p.add_argument("--retries", type=int, default=3, help="tool-feedback retries after the first")
     p.add_argument("--temperature", type=float, default=0.7)
-    p.add_argument("--max-tokens", type=int, default=MAX_OUTPUT_TOKENS,
-                   help="output cap, including a reasoning model's thinking")
+    p.add_argument("--max-tokens", type=int, default=None,
+                   help=f"output cap, including thinking (default: {ANTHROPIC_MAX_TOKENS} for "
+                        f"anthropic, {MAX_OUTPUT_TOKENS} for ollama)")
     p.add_argument("--num-ctx", type=int, default=None,
                    help="context window (default: max(16384, max-tokens + 4096))")
     p.add_argument("--timeout", type=float, default=REQUEST_TIMEOUT_S,
@@ -478,6 +493,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="Ollama think flag for reasoning models")
     p.add_argument("--experiment", default=None)
     p.add_argument("--out", type=Path, default=ROOT / "experiments")
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = build_parser()
     args = p.parse_args(argv)
     args.think = {"on": True, "off": False, "default": None}[args.think]
 
@@ -519,8 +539,8 @@ def main(argv: list[str] | None = None) -> int:
         "seed": None if anthropic_run else args.seed,
         "effort": args.effort if anthropic_run else None,
         "thinking": {"type": "adaptive", "display": "summarized"} if anthropic_run else args.think, "retries": args.retries if args.mode == "tool-feedback" else 0,
-        "max_tokens": args.max_tokens,
-        "num_ctx": None if anthropic_run else (args.num_ctx or max(16384, args.max_tokens + 4096)),
+        "max_tokens": effective_max_tokens(args),
+        "num_ctx": None if anthropic_run else (args.num_ctx or max(16384, effective_max_tokens(args) + 4096)),
         "request_timeout_s": args.timeout, "prompt": PROMPT, "grader": "racer-check",
         "check_template": str(CHECK_TEMPLATE.relative_to(ROOT)),
         "accepted_colors": [f"0x{c:02x}" for c in ACCEPTED_COLORS],

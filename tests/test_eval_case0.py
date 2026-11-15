@@ -156,3 +156,26 @@ def test_informational_failure_does_not_hide_a_graded_one():
     g = categorize(report, case0.property_names(case0.CHECK_TEMPLATE.read_text()))
     assert not g.ok and g.failed == ["background"] and g.category == "output_mismatch"
     assert g.near_miss and red_retry_color(g) is None
+
+
+def test_color_retry_happens_alongside_other_failures():
+    """A $44 background is accepted even when the frame is also wrong; the
+    color check is independent of the other properties."""
+    g = Grade(False, "timing", failed=["background", "blanking", "frame_length"],
+              detail="background: frame 2, line 40, clock 68: color $44; required color $42; "
+                     "blanking: frame 2, line 39, clock 68: color $44; required no color; "
+                     "frame_length: frame 2: 260 lines; required 262 lines")
+    assert red_retry_color(g) == 0x44
+
+
+def test_anthropic_default_max_tokens(monkeypatch):
+    seen = {}
+    def fake_main_args(argv):
+        p = case0.build_parser()
+        return p.parse_args(argv)
+    args = fake_main_args(["--provider", "anthropic", "--model", "claude-haiku-5-5"])
+    assert case0.effective_max_tokens(args) == 64000
+    args = fake_main_args(["--model", "llama3.1"])
+    assert case0.effective_max_tokens(args) == 4096
+    args = fake_main_args(["--provider", "anthropic", "--model", "x", "--max-tokens", "1000"])
+    assert case0.effective_max_tokens(args) == 1000
