@@ -207,27 +207,83 @@ def grade_program(code: str, workdir: Path) -> tuple[dict, Grade]:
 
 # ---------------------------------------------------------------- model
 
+class RequestTimeout(Exception):
+    """The request ran past its wall-clock deadline. Carries what arrived."""
+
+    def __init__(self, message: str, partial: dict):
+        super().__init__(message)
+        self.partial = partial
+
+
 def ollama_chat(model: str, messages: list[dict], *, temperature: float, seed: int,
                 think: bool | None, max_tokens: int = MAX_OUTPUT_TOKENS,
-                num_ctx: int | None = None, timeout_s: int = REQUEST_TIMEOUT_S,
+                num_ctx: int | None = None, timeout_s: float = REQUEST_TIMEOUT_S,
                 save_to: Path | None = None) -> dict:
+    """Streamed chat request. Every chunk is appended to stream.jsonl as it
+    arrives, and response.md / thinking.md grow with it, so a timeout or an
+    interruption keeps everything generated so far. `timeout_s` is a total
+    wall-clock deadline for the whole request."""
     # The context window must hold the conversation plus the whole output.
     num_ctx = num_ctx or max(16384, max_tokens + 4096)
-    body = {"model": model, "messages": messages, "stream": False,
+    body = {"model": model, "messages": messages, "stream": True,
             "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx,
                         "num_predict": max_tokens}}
     if think is not None:
         body["think"] = think
-    if save_to:  # exactly what goes over the wire, and exactly what comes back
+    if save_to:
         save_to.mkdir(parents=True, exist_ok=True)
         (save_to / "request.json").write_text(json.dumps(body, indent=2))
+    content, thinking, chunks, final = [], [], 0, None
+    deadline = time.time() + timeout_s
+
+    def partial() -> dict:
+        return {"message": {"role": "assistant", "content": "".join(content),
+                            "thinking": "".join(thinking)},
+                "chunks": chunks, "done": False}
+
+    def flush():
+        if save_to:
+            (save_to / "response.md").write_text("".join(content))
+            if thinking:
+                (save_to / "thinking.md").write_text("".join(thinking))
+
     req = urllib.request.Request(f"{OLLAMA}/api/chat", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout_s) as r:
-        raw = r.read()
+    stream_log = open(save_to / "stream.jsonl", "a") if save_to else None
+    try:
+        # Socket timeout bounds a silent server; the loop enforces the deadline.
+        with urllib.request.urlopen(req, timeout=max(1.0, min(timeout_s, 60))) as r:
+            for line in r:
+                if stream_log:
+                    stream_log.write(line.decode())
+                    stream_log.flush()
+                chunk = json.loads(line)
+                chunks += 1
+                msg = chunk.get("message", {})
+                content.append(msg.get("content", ""))
+                thinking.append(msg.get("thinking", "") or "")
+                if chunks % 20 == 0:
+                    flush()
+                if chunk.get("done"):
+                    final = chunk
+                    break
+                if time.time() > deadline:
+                    raise RequestTimeout(f"deadline of {timeout_s:g}s passed after {chunks} chunks",
+                                         partial())
+    except (TimeoutError, OSError) as e:  # socket timeout, connection errors
+        flush()
+        raise RequestTimeout(f"{type(e).__name__}: {e} after {chunks} chunks", partial()) from e
+    except RequestTimeout:
+        flush()
+        raise
+    finally:
+        if stream_log:
+            stream_log.close()
+    flush()
+    resp = {**final, "message": partial()["message"], "chunks": chunks}
     if save_to:
-        (save_to / "response.json").write_text(json.dumps(json.loads(raw), indent=2))
-    return json.loads(raw)
+        (save_to / "response.json").write_text(json.dumps(resp, indent=2))
+    return resp
 
 
 def model_template(model: str) -> str:
@@ -278,8 +334,8 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
             resp = ollama_chat(args.model, messages, temperature=args.temperature, seed=seed,
                                think=args.think, max_tokens=args.max_tokens,
                                num_ctx=args.num_ctx, timeout_s=args.timeout, save_to=workdir)
-        except (TimeoutError, OSError) as e:  # urllib wraps timeouts as URLError(OSError)
-            resp = {"error": f"{type(e).__name__}: {e}"}
+        except RequestTimeout as e:
+            resp = {**e.partial, "error": str(e)}
             workdir.mkdir(parents=True, exist_ok=True)
             (workdir / "error.txt").write_text(resp["error"] + "\n")
         wall_ms = int((time.time() - t0) * 1000)
@@ -298,13 +354,13 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
             workdir.mkdir(parents=True, exist_ok=True)
         else:
             asm_rec, grade = grade_program(code, workdir)
-        (workdir / "response.md").write_text(text)
         record = {
             "sample": sample, "seed": seed, "attempt_no": attempt_no,
             "prompt": messages[-1]["content"], "response": text, "thinking": thinking,
             "done_reason": resp.get("done_reason"), "code": code,
             "fact_ids_in_context": [], "assemble": asm_rec, "grade": grade.to_dict(),
             "tokens": {"prompt": resp.get("prompt_eval_count"), "output": resp.get("eval_count"),
+                       "chunks_received": resp.get("chunks"),
                        "tokens_per_s": round(resp["eval_count"] / (resp["eval_duration"] / 1e9), 1)
                        if resp.get("eval_duration") else None},
             "wall_ms": wall_ms,
@@ -336,7 +392,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="output cap, including a reasoning model's thinking")
     p.add_argument("--num-ctx", type=int, default=None,
                    help="context window (default: max(16384, max-tokens + 4096))")
-    p.add_argument("--timeout", type=int, default=REQUEST_TIMEOUT_S, help="seconds per request")
+    p.add_argument("--timeout", type=float, default=REQUEST_TIMEOUT_S,
+                   help="wall-clock seconds per request; output so far is kept")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--think", choices=("on", "off", "default"), default="default",
                    help="Ollama think flag for reasoning models")
