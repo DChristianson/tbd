@@ -19,7 +19,8 @@ VS Code's backend (terminal, extensions, Claude Code) into the container.
 |---|---|
 | `Dockerfile` | Debian + git, curl, jq, ripgrep; Python 3, build-essential, CMake; **DASM** 2.20.14.1 built from a hash-pinned source archive; **Rust** 1.100.0 via a hash-pinned rustup-init; **bd** pinned to a verified release; **Claude Code**; removes `sudo` |
 | `devcontainer.json` | GitHub CLI (feature), security options, Claude login volume, env vars (`TBD_STELLA_CORE`, `OLLAMA_HOST`), setup hooks, extensions |
-| `post-create.sh` | Runs once at creation: prints tool versions, turns bd metrics off, makes a Python venv at `~/venv`, builds `stella-core` into `stella-core/build-linux/` and the vendored `racer-check` into `vendor/racer/target-linux/` |
+| `post-create.sh` | Runs once at creation: prints tool versions, turns bd metrics off, makes a Python venv at `~/venv`, builds the vendored `racer-check` (the grader) into `vendor/racer/target-linux/`, then, optionally, `stella-core` into `stella-core/build-linux/` via `build-stella.sh` (skipped with `TBD_SKIP_STELLA=1`; a failure only warns) |
+| `build-stella.sh` | Builds `stella-core`, the optional reference emulator for cross-checks |
 | `init-project.sh` | Run once by hand: `git init` (no-op here) + `bd init --skip-hooks` |
 | `check-host-safety.sh` | Runs on every start: warns if git hooks have been configured |
 

@@ -33,7 +33,14 @@ data); the `racer-crosscheck` binary (needs the other emulators). The
 3. Two more property kinds for a relaxed tier of checks, in the same files:
    `frame_length_range` (`min_lines`..`max_lines`) and `picture_block` (a
    block of `lines` lines of one color starting within `start_window`,
-   blank elsewhere). The
+   blank elsewhere).
+
+**Checked (2026-11-15):** at commit `59edc95`, the vendored `racer-check` and
+unmodified upstream `racer-check` (racer `b54543d`) give byte-identical
+`--json` reports on all 40 of racer's own reference check files, all passing
+(racer's `reference/` built with `DASM_INCLUDE` pointed at
+`tests/fixtures/vendor/atari2600`). The changes add capability without
+changing an existing result. The
 workspace `Cargo.toml` here is new, listing only these three crates. To update: copy the same files from a newer racer commit,
 update the commit above, and rebuild.
 

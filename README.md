@@ -1,6 +1,6 @@
 # tbd
 
-An agent that writes Atari 2600 programs from plain-language prompts, and the
+A coding harness that writes Atari 2600 programs from plain-language prompts, and the
 evaluation harness that measures it. The harness asks a model for a program,
 assembles it with DASM, runs it in a cycle-accurate simulator, and checks the
 picture and timing against a spec.
@@ -17,10 +17,10 @@ Work items are tracked in beads (`bd ready`).
 
 | Path | What it is | License |
 |---|---|---|
-| `src/tbd/tools/` | `assembler` (wraps DASM) and `emulator` (drives `stella-core`) | MIT |
+| `src/tbd/tools/` | `assembler` (wraps DASM) and `emulator` (drives `stella-core`; used only by tests) | MIT |
 | `src/tbd/eval/` | `case0` (the Case 0 eval), `regrade`, `claude_client` | MIT |
-| `stella-core/` | Headless Stella 7.0c emulation core, driven over JSON lines | GPL-2.0-or-later |
-| `vendor/racer/` | `racer-check`: simulator and property checker, from racer, with tbd's additions (see its `NOTICE.md`) | MIT |
+| `vendor/racer/` | `racer-check`: the grader. Simulator and property checker, from racer, with tbd's additions (see its `NOTICE.md`) | MIT |
+| `stella-core/` | **Optional.** Headless Stella 7.0c core: a reference emulator for cross-checking the grader, not used by the eval | GPL-2.0-or-later |
 | `tests/fixtures/` | Case 0 reference program (`red_background.asm`), its check files, and the vendored `vcs.h` / `macro.h` | MIT / GPL-2.0-or-later headers |
 
 ## Building
@@ -29,30 +29,38 @@ Work items are tracked in beads (`bd ready`).
 
 Open the folder in VS Code and choose **Reopen in Container**. The image
 installs DASM 2.20.14.1, Rust 1.100.0, Python and CMake, and `post-create.sh`
-then builds everything:
+then builds:
 
 - a Python venv at `~/venv` with `tbd` installed (`.[test]`)
-- `stella-core` into `stella-core/build-linux/` (found through `TBD_STELLA_CORE`)
 - `racer-check` into `vendor/racer/target-linux/` (found through `TBD_RACER_CHECK`)
+- optionally, `stella-core` into `stella-core/build-linux/` (found through
+  `TBD_STELLA_CORE`). Set `TBD_SKIP_STELLA=1` to skip it; a failed Stella
+  build only prints a warning. Build it later with
+  `bash .devcontainer/build-stella.sh`.
 
 For the Claude API, also install the eval extra: `pip install -e '.[eval]'`.
 Details, including the safety setup: [.devcontainer/README.md](.devcontainer/README.md).
 
 ### On a Mac, without the container
 
-Needs Homebrew, Python 3.10+, CMake, a C++20 compiler (Xcode command-line
-tools) and Rust (`rustup`).
+Needs Homebrew, Python 3.10+ and Rust (`rustup`).
 
 ```sh
-brew install dasm cmake
+brew install dasm
 
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e '.[test,eval]'
 
+cargo build --release --manifest-path vendor/racer/Cargo.toml
+```
+
+Optional, for the Stella cross-checks (needs CMake and a C++20 compiler, the
+Xcode command-line tools):
+
+```sh
+brew install cmake
 cmake -S stella-core -B stella-core/build -DCMAKE_BUILD_TYPE=Debug
 cmake --build stella-core/build -j8
-
-cargo build --release --manifest-path vendor/racer/Cargo.toml
 ```
 
 The Mac and the container build into different folders (`build/` and
@@ -66,7 +74,8 @@ pytest -q
 ```
 
 All tests should pass. Tests that need `stella-core` or `racer-check` are
-skipped, with a message, if those aren't built.
+skipped, with a message, if those aren't built; without Stella, that's the
+Stella cross-checks only.
 
 ## Running Case 0
 
