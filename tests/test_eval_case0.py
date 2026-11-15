@@ -15,6 +15,18 @@ def test_extracts_longest_asm_block():
     assert "sta COLUBK" in extract_code(text)
 
 
+def test_block_without_instructions_is_still_code():
+    """Judging whether it's 6502 is DASM's job, not the extractor's (qwen3.5's
+    dry reply was one asm block of made-up directives, logged as no_code)."""
+    text = "```asm\n.include \"vcs.h\"\n.setBG, 1\n```"
+    assert extract_code(text) == '.include "vcs.h"\n.setBG, 1\n'
+
+
+def test_prefers_asm_tagged_block():
+    text = "```\na much longer untagged block of prose\nand more\n```\n```asm\nlda #1\n```"
+    assert extract_code(text) == "lda #1\n"
+
+
 def test_ignores_think_and_prose_only():
     assert extract_code("<think>```asm\nlda #1\n```</think>no code here") is None
     assert extract_code("just words") is None
@@ -66,3 +78,22 @@ def test_other_red_is_accepted(tmp_path):
 def test_assemble_error_is_categorized(tmp_path):
     _, grade = grade_program("  processor 6502\n  bogus #1\n", tmp_path)
     assert grade.category == "assemble_error"
+
+
+@pytest.mark.skipif(not case0.RACER_CHECK.exists(), reason="racer-check not built")
+def test_regrade_writes_a_new_folder_and_leaves_the_attempt_alone(tmp_path, monkeypatch):
+    import json
+    from tbd.eval import regrade as rg
+    monkeypatch.setattr(rg, "ROOT", tmp_path)
+    attempt = tmp_path / "attempt-1"
+    attempt.mkdir()
+    (attempt / "response.md").write_text("```asm\n.setBG, 1\n```")
+    original = {"grade": {"ok": False, "category": "no_code", "detail": "", "failed": [], "color": None}}
+    (attempt / "attempt.json").write_text(json.dumps(original))
+    before = sorted(p.name for p in attempt.iterdir())
+    r = rg.regrade(attempt)
+    assert r["original_grade"]["category"] == "no_code"
+    assert r["grade"]["category"] == "assemble_error"
+    after = sorted(p.name for p in attempt.iterdir())
+    assert [n for n in after if n not in before] == [n for n in after if n.startswith("regrade-")]
+    assert json.loads((attempt / "attempt.json").read_text()) == original

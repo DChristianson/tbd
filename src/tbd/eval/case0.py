@@ -79,14 +79,19 @@ TIMING_PROPS = {"frame_length", "vsync"}
 
 # ---------------------------------------------------------------- extraction
 
-_FENCE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+_FENCE = re.compile(r"```([^\n`]*)\n(.*?)```", re.DOTALL)
+_ASM_TAGS = {"asm", "assembly", "dasm", "6502", "s", "nasm", "ca65"}
 
 
 def extract_code(response: str) -> str | None:
-    """The longest fenced block that looks like 6502 source, else None."""
+    """The program in the reply: the longest fenced block tagged as assembly,
+    else the longest fenced block of any kind, else None. Whether it is valid
+    6502 is left to DASM."""
     response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL)
-    blocks = [b for b in _FENCE.findall(response) if re.search(r"(?im)^\s*(sta|lda|org)\b", b)]
-    return max(blocks, key=len) if blocks else None
+    blocks = [(tag.strip().lower(), body) for tag, body in _FENCE.findall(response)]
+    tagged = [b for t, b in blocks if t in _ASM_TAGS]
+    pool = tagged or [b for _, b in blocks]
+    return max(pool, key=len) if pool else None
 
 
 # ---------------------------------------------------------------- grading
