@@ -1,0 +1,21 @@
+[package]
+name = "racer-checker"
+version = "0.1.0"
+description = "Checks properties of Racer-26 simulator traces"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+# `cargo run -p racer-checker` runs the checker; the cross-check is
+# `--bin racer-crosscheck`.
+default-run = "racer-check"
+
+[[bin]]
+name = "racer-check"
+path = "src/main.rs"
+
+[dependencies]
+racer-sim = { path = "../sim" }
+racer-checkfile = { path = "../checkfile" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"

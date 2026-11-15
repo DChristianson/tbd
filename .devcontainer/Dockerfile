@@ -37,6 +37,30 @@ RUN set -eu; \
     install -m 0755 "dasm-${DASM_VERSION}/bin/dasm" /usr/local/bin/dasm; \
     rm -rf /tmp/dasm*
 
+# Rust, for the vendored racer-check (vendor/racer/; built by post-create.sh).
+# rustup-init is pinned by version and hash (written here, not fetched from
+# the archive's own .sha256 at build time). To upgrade: change RUSTUP_VERSION,
+# download .../rustup/archive/<ver>/<arch>-unknown-linux-gnu/rustup-init for
+# both arches, paste in their `sha256sum`; change RUST_VERSION to the toolchain.
+ARG RUSTUP_VERSION=1.29.3
+ARG RUSTUP_SHA256_arm64=9f608c142e0e38a78957d0661ba1dfaf0b6fb37184cfaa4b9a0aa57af6184282
+ARG RUSTUP_SHA256_amd64=b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55
+ARG RUST_VERSION=1.100.0
+ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
+RUN set -eu; \
+    case "$TARGETARCH" in \
+      arm64) arch=aarch64; sha="$RUSTUP_SHA256_arm64" ;; \
+      amd64) arch=x86_64;  sha="$RUSTUP_SHA256_amd64" ;; \
+      *) echo "unsupported arch: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${arch}-unknown-linux-gnu/rustup-init"; \
+    echo "$sha  /tmp/rustup-init" | sha256sum -c -; \
+    chmod +x /tmp/rustup-init; \
+    /tmp/rustup-init -y -q --no-modify-path --profile minimal --default-toolchain "$RUST_VERSION"; \
+    rm /tmp/rustup-init; \
+    chmod -R a+rX "$RUSTUP_HOME" "$CARGO_HOME"
+ENV PATH="/usr/local/cargo/bin:${PATH}"
+
 # ---- beads (bd) --------------------------------------------------------------
 # Pinned release. The hashes are written here (not fetched from the release's
 # own checksums.txt) and were checked against GitHub build attestations with:
@@ -67,6 +91,8 @@ RUN rm -f /etc/sudoers.d/vscode \
  && chown -R vscode:vscode /home/vscode/.claude
 
 USER vscode
+# Toolchain stays root-owned in /usr/local; cargo's download cache goes here.
+ENV CARGO_HOME=/home/vscode/.cargo
 
 # ---- Claude Code -------------------------------------------------------------
 # Native installer; installs to ~/.local/bin for the vscode user.

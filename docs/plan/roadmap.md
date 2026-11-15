@@ -38,9 +38,50 @@ The first grid cell to fill is the baseline: local models, no facts, Task 1.
 It measures how much 2600 programming the models already know from
 pretraining, which every later comparison is measured against.
 
+## Course correction (2026-11-15): racer-check grades, Stella cross-checks
+
+The plan had `tbd.tools.emulator` (Stella, through `stella-core`) as the
+emulator the grader reads, with graders written in tbd: Python checks over
+per-line register reads, then a raster/frame-diff tool for Task 3 and
+joystick input added to the Stella protocol for Tasks 7-8 (beads
+`tbd-818.2`, `tbd-dpu.3`, `tbd-ddh.1`).
+
+racer (a separate project, same author) already had what those were going to
+be: a cycle-accurate 6502/TIA/RIOT simulator, cross-checked against Stella,
+Gopher2600 and 6502.ts, and `racer-check`, which checks TOML check files of
+properties per color clock (frame length, sync, blanking, colors, register
+write windows, images, object positions, audio, scripted joystick input),
+from a zeroed and from random power-on states. It also showed the gap in the
+Stella-based tests: they passed a Case 0 reference that drew 263 lines and
+never blanked (item 5 below), because they read registers once per line
+instead of what's on screen.
+
+So, decided (beads `tbd-818.9`, `tbd-818.12`):
+- **The grader is `racer-check`**, vendored into
+  [vendor/racer/](../../vendor/racer/NOTICE.md) (MIT) and called as a binary,
+  as tbd calls `dasm`. **Task specs grade with racer check files**
+  ([tests/fixtures/red_background.check.toml](../../tests/fixtures/red_background.check.toml)).
+- **Stella stays, as an optional reference emulator** for cross-checking the
+  grader: `tests/test_emulator.py`, and a test that racer's LXA agrees with
+  Stella's. The eval doesn't use it, and the build skips it on request
+  (`TBD_SKIP_STELLA=1`). Periodic Stella cross-checks of graded attempts:
+  `tbd-818.16`.
+- **tbd adds to racer where the eval needs it**, in the vendored copy and
+  listed in its NOTICE: the undocumented `LXA` (`CLEAN_START` uses it, and
+  undocumented opcodes are allowed), and the property kinds `signal_span`,
+  `frame_length_range` and `picture_block` for tolerant VSYNC and the
+  relaxed (near-miss) tier. On all 40 of racer's own reference check files,
+  vendored and upstream `racer-check` give identical reports. Upstreaming:
+  `tbd-818.15`.
+
+What this changes for later tasks: the raster/frame-diff tool (Task 3) and
+joystick input (Tasks 7-8) come from racer's `image`, `object` and `[[input]]`
+support instead of being built in tbd.
+
 ## Status
 - [x] Task 1 — Layer 0: stable framerate, red background (tools + hand-written reference)
-- [ ] Task 1 — spec + baseline through the harness
+- [x] Task 1 — spec (prompt, strict and relaxed check files, reference) and the eval harness (`tbd.eval.case0`)
+- [ ] Task 1 — baseline: Claude rows filled (Opus 5.5 5/5, Haiku 5.5 4/5 + 1 near miss, Sonnet 5.5 1/5 + 4 near misses); local rows only dry requests (beads `tbd-1nx.5`)
 - [ ] Tasks 2–8 — see beads
 
 ## Task 1 — stable framerate, red background
@@ -119,9 +160,12 @@ Order of work from here:
    once and never back on. The tests only checked that frames were *equal*
    length and that `COLUBK` held red, so both passed. They now also check
    262 lines, 3 lines of VSYNC, and 192 contiguous unblanked lines, all red.
-   The fixture also defines `NO_ILLEGAL_OPCODES` (racer's simulator rejects
-   `CLEAN_START`'s `lxa`). Its racer check file is
-   `tests/fixtures/red_background.check.toml` and passes 101 of 101 runs.
+   The fixture also defines `NO_ILLEGAL_OPCODES` (racer's simulator rejected
+   `CLEAN_START`'s `lxa` at the time; it runs it since 2026-11-15). Its racer
+   check file is `tests/fixtures/red_background.check.toml` and passes 101 of
+   101 runs.
+6. ✅ (2026-11-15) Grading moved to `racer-check` (course correction above).
+   The Stella tests in `tests/test_emulator.py` stay as a cross-check.
 
 ## Later tasks
 
@@ -130,9 +174,9 @@ in beads. Layer 0 needs per task are listed in
 [experiment-grid.md](../design/experiment-grid.md#task-specs).
 
 2. Per-scanline background color changes
-3. Color grid (first real use of a raster/frame-diff tool)
+3. Color grid (graded with racer's `image` / `output_colors` properties)
 4. Position players/missiles/ball on playfield
 5. 2-player scoreboard
 6. 6-character scoreboard
-7. Pong clone (needs joystick input injection in the emulator)
+7. Pong clone (scripted joystick input through racer check files' `[[input]]`)
 8. Two-player movement + shooting

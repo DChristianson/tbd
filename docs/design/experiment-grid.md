@@ -26,7 +26,7 @@ confound.
 | **Model** | each contributed model; later, each discovered model (named by its parent + training run) |
 | **Facts** | `none` · `contributed` · `discovered` · `both` |
 | **Task** | T1–T8, each as `canonical` (the wording in the design doc) and one or more `variant`s |
-| **Mode** | `one-shot` (one generation, graded) · `tool-feedback` (sees assembler errors and grader output, retries within a budget) |
+| **Mode** | `one-shot` (one generation, graded) · `tool-feedback` (sees assembler errors and grader output, retries within a budget) · `agentic` (an agent product such as Claude Code or Copilot CLI, sandboxed: only the prompt, an empty work dir, `dasm` + headers, and a `check` command whose grader runs outside the sandbox) |
 
 Held fixed per run and recorded: samples per cell (*k*), temperature, seed,
 retry budget, model digest, fact-store snapshot.

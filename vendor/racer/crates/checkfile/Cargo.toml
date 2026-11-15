@@ -1,0 +1,12 @@
+[package]
+name = "racer-checkfile"
+version = "0.1.0"
+description = "Check files: what the Racer-26 compiler predicts and the checker checks"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+racer-sim = { path = "../sim" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"

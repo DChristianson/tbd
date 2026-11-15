@@ -33,3 +33,10 @@ docs/design/flatbuffers-spike/cpp_benchmark
 .beads/proxieddb/
 *.gate.lock*
 .snagboat/
+
+# racer-check build output (target/ = Mac, target-linux/ = dev container)
+vendor/racer/target/
+vendor/racer/target-linux/
+
+# Eval output (experiments/{experiment_id}/...); results are written up in docs/notes/
+experiments/

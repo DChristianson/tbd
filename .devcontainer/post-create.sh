@@ -7,6 +7,7 @@ echo "claude: $(claude --version 2>/dev/null || echo 'not found')"
 echo "git:    $(git --version)"
 echo "dasm:   $(dasm 2>&1 | head -1)"
 echo "python: $(python3 --version)"
+echo "rust:   $(rustc --version)"
 
 # Record the metrics opt-out in bd's user config too (the env vars already
 # disable it; this keeps `bd metrics status` honest if they are ever unset).
@@ -19,16 +20,18 @@ if [ ! -x /home/vscode/venv/bin/python ]; then
 fi
 /home/vscode/venv/bin/pip install -q -e '.[test]'
 
-# Linux build of stella-core into build-linux/ (the Mac uses build/).
-# build-linux/ lives on the bind mount and survives rebuilds; if the workspace
-# path changed, its CMake cache points at the old source dir, so start fresh.
-cache=stella-core/build-linux/CMakeCache.txt
-if [ -f "$cache" ] && ! grep -qxF "CMAKE_HOME_DIRECTORY:INTERNAL=$PWD/stella-core" "$cache"; then
-  echo "stella-core/build-linux was configured for another path; removing it."
-  rm -rf stella-core/build-linux
+# Required: racer-check (vendored, vendor/racer/), the grader, into
+# target-linux/ (the Mac uses target/).
+cargo build -q --release --manifest-path vendor/racer/Cargo.toml --target-dir vendor/racer/target-linux
+
+# Optional: stella-core, the reference emulator for cross-checks. A failure
+# here doesn't stop setup; its tests are skipped if it isn't built.
+if [ "${TBD_SKIP_STELLA:-0}" = "1" ]; then
+  echo "Skipping stella-core (TBD_SKIP_STELLA=1)."
+elif ! bash .devcontainer/build-stella.sh; then
+  echo "WARNING: stella-core didn't build. The eval doesn't need it; its tests will be skipped."
+  echo "         Retry with: bash .devcontainer/build-stella.sh"
 fi
-cmake -S stella-core -B stella-core/build-linux -DCMAKE_BUILD_TYPE=Debug >/dev/null
-cmake --build stella-core/build-linux -j"$(nproc)"
 
 # Claude Code integration comes from `bd init` (init-project.sh): it writes a
 # project-level .claude/settings.json hook that runs `bd prime` at session start.

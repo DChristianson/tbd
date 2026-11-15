@@ -32,6 +32,8 @@
     "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
     // Linux build of stella-core, kept apart from the Mac's stella-core/build/.
     "TBD_STELLA_CORE": "${containerWorkspaceFolder}/stella-core/build-linux/shim/stella_core",
+    // Vendored racer-check (vendor/racer/), built by post-create.sh.
+    "TBD_RACER_CHECK": "${containerWorkspaceFolder}/vendor/racer/target-linux/release/racer-check",
     // Local models run in Ollama on the Mac (GPU); the container calls it over
     // the network rather than running models itself (CPU-only in Docker).
     "OLLAMA_HOST": "http://host.docker.internal:11434"
@@ -40,7 +42,10 @@
   "remoteEnv": {
     // Don't hand your Mac's SSH keys (via the forwarded ssh-agent) to code in
     // the container. See README "Pushing to GitHub".
-    "SSH_AUTH_SOCK": ""
+    "SSH_AUTH_SOCK": "",
+    // Key for Claude API evals (tbd.eval), from your Mac's environment. Its own
+    // name so Claude Code in here keeps its login instead of switching to it.
+    "TBD_ANTHROPIC_API_KEY": "${localEnv:TBD_ANTHROPIC_API_KEY}"
   },
 
   // Runs once when the container is created.
