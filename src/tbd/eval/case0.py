@@ -103,10 +103,18 @@ class Grade:
     detail: str = ""
     failed: list[str] = field(default_factory=list)
     color: int | None = None
+    # Every property in the check file -> "pass" / "fail", once the program ran.
+    properties: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def near_miss(self) -> bool:
+        """Assembled, ran, and failed exactly one property."""
+        return not self.ok and len(self.failed) == 1 and bool(self.properties)
 
     def to_dict(self) -> dict:
         return {"ok": self.ok, "category": self.category, "detail": self.detail,
-                "failed": self.failed, "color": self.color}
+                "failed": self.failed, "color": self.color,
+                "properties": self.properties, "near_miss": self.near_miss}
 
 
 def parse_failures(report: dict) -> dict[str, dict]:
@@ -123,15 +131,37 @@ def describe(f: dict) -> str:
     return f"{f['property']}: {where}: {f.get('observed')}; required {f.get('required')}"
 
 
-def categorize(report: dict) -> Grade:
+_PROPERTY_BLOCK = re.compile(r"(?ms)^\[\[property\]\]\n(.*?)(?=^\[\[|\Z)")
+
+
+def property_names(check_toml: str) -> list[str]:
+    """Each property's name (its `name`, else its `kind`), in file order."""
+    names = []
+    for block in _PROPERTY_BLOCK.findall(check_toml):
+        m = re.search(r'(?m)^name\s*=\s*"([^"]+)"', block) or \
+            re.search(r'(?m)^kind\s*=\s*"([^"]+)"', block)
+        if m:
+            names.append(m.group(1))
+    return names
+
+
+def categorize(report: dict, names: list[str] | None = None) -> Grade:
+    grade = _categorize(report)
+    if names and grade.category in ("pass", "timing", "output_mismatch"):
+        grade.properties = {n: ("fail" if n in grade.failed else "pass") for n in names}
+    return grade
+
+
+def _categorize(report: dict) -> Grade:
     if report.get("passed"):
         return Grade(True, "pass")
     errors = [r["error"] for r in report.get("unexpected", []) if r.get("error")]
     if report.get("error"):
         errors.insert(0, report["error"])
     if errors:
-        # Undocumented opcodes are allowed (tbd-dpu.10) but racer's simulator
-        # can't run them yet (tbd-818.11): a grader gap, not a model failure.
+        # Undocumented opcodes are allowed (tbd-dpu.10). racer's simulator runs
+        # LXA (tbd-818.11); any other one it can't run is a grader gap, not a
+        # model failure.
         category = "unsupported_opcode" if "UnknownOpcode" in errors[0] else "crash"
         return Grade(False, category, detail=errors[0])
     failures = parse_failures(report)
@@ -197,13 +227,14 @@ def grade_program(code: str, workdir: Path) -> tuple[dict, Grade]:
         return asm_rec, Grade(False, "assemble_error", detail="; ".join(asm_rec["errors"][:5]))
     (workdir / "build").mkdir(exist_ok=True)
     (workdir / "build" / "prog.bin").write_bytes(asm.rom)
-    grade = categorize(run_racer_check(workdir, DEFAULT_COLOR))
+    names = property_names(CHECK_TEMPLATE.read_text())
+    grade = categorize(run_racer_check(workdir, DEFAULT_COLOR), names)
     if grade.ok:
         grade.color = DEFAULT_COLOR
         return asm_rec, grade
     other = red_retry_color(grade)
     if other is not None:
-        regrade = categorize(run_racer_check(workdir, other))
+        regrade = categorize(run_racer_check(workdir, other), names)
         if regrade.ok:
             regrade.color = other
             return asm_rec, regrade
@@ -381,13 +412,17 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
               + (f" ({grade.detail[:100]})" if grade.detail else ""), flush=True)
         if attempt_no == 1:
             first = grade.category
+            first_near = grade.near_miss
         if grade.category == "timeout":
-            return {"passed": False, "attempts": attempt_no, "first_category": first}
+            return {"passed": False, "attempts": attempt_no, "first_category": first,
+                    "near_miss": first_near}
         if grade.ok:
-            return {"passed": True, "attempts": attempt_no, "first_category": None}
+            return {"passed": True, "attempts": attempt_no, "first_category": None,
+                    "near_miss": False}
         messages += [{"role": "assistant", "content": resp.get("assistant_content") or text},
                      {"role": "user", "content": feedback(asm_rec, grade)}]
-    return {"passed": False, "attempts": budget, "first_category": first}
+    return {"passed": False, "attempts": budget, "first_category": first,
+            "near_miss": first_near}
 
 
 def chat(args, messages: list[dict], seed: int, workdir: Path) -> dict:
@@ -514,6 +549,7 @@ def write_metrics(job_dir: Path, args, results: list[dict], status: str, t0: flo
         "pass_at_1_first_attempt": (sum(r["passed"] and r["attempts"] == 1 for r in results) / done
                                     if done else None),
         "first_attempt_categories": firsts,
+        "near_misses": sum(bool(r.get("near_miss")) for r in results),
         "attempts_total": sum(r["attempts"] for r in results),
         "wall_s": round(time.time() - t0, 1),
     }

@@ -58,3 +58,57 @@ def test_racer_check_rejects_a_263_line_frame(tmp_path):
     (bad / "red_background.asm").write_text(source.replace("ldx #29", "ldx #30"))
     report = _check(bad / "red_background.asm", tmp_path)
     assert not report["passed"]
+
+
+def test_case0_with_lxa_passes(tmp_path):
+    """CLEAN_START's default expansion uses the undocumented lxa #0 ($AB).
+    Undocumented opcodes are allowed (beads tbd-dpu.10), so the grader must
+    run it rather than stop (tbd-818.11)."""
+    src = tmp_path / "src"
+    src.mkdir()
+    shutil.copytree(FIXTURES / "vendor", src / "vendor")
+    source = (FIXTURES / "red_background.asm").read_text()
+    assert "NO_ILLEGAL_OPCODES = 1" in source
+    with_lxa = source.replace("NO_ILLEGAL_OPCODES = 1", "")
+    (src / "red_background.asm").write_text(with_lxa)
+    rom = assemble(src / "red_background.asm").rom
+    assert rom[2] == 0xAB, "expected lxa as CLEAN_START's third byte"
+    report = _check(src / "red_background.asm", tmp_path)
+    assert report["passed"], report["unexpected"][:1]
+
+
+def test_lxa_agrees_with_stella(tmp_path):
+    """Non-zero case: lda #$01; lxa #$5A gives A = X = ($01 | $EE) & $5A = $4A
+    in racer's simulator and in Stella."""
+    from tbd.tools.emulator import _DEFAULT_BIN as STELLA
+
+    src = tmp_path / "src"
+    src.mkdir()
+    shutil.copytree(FIXTURES / "vendor", src / "vendor")
+    source = (FIXTURES / "red_background.asm").read_text()
+    probe = "    CLEAN_START\n    lda #$01\n    .byte $AB, $5A    ; lxa #$5A\n    sta $80\n    stx $81\n"
+    assert "    CLEAN_START\n" in source
+    (src / "red_background.asm").write_text(source.replace("    CLEAN_START\n", probe, 1))
+    rom = assemble(src / "red_background.asm").rom
+
+    (tmp_path / "build").mkdir()
+    (tmp_path / "build" / "red_background.bin").write_bytes(rom)
+    (tmp_path / "lxa.check.toml").write_text(
+        'rom = "build/red_background.bin"\n[run]\nframes = 3\nskip_frames = 1\nzero = true\n'
+        '[[property]]\nkind = "ram"\naddress = 0x80\nvalue = 0x4A\n'
+        '[[property]]\nname = "x"\nkind = "ram"\naddress = 0x81\nvalue = 0x4A\n')
+    proc = subprocess.run([str(RACER_CHECK), "--json", "lxa.check.toml"], cwd=tmp_path,
+                          capture_output=True, text=True)
+    report = json.loads(proc.stdout.splitlines()[0])
+    assert report["passed"], report["unexpected"][:1]
+
+    if not STELLA.exists():
+        pytest.skip("stella_core not built")
+    rom_path = tmp_path / "build" / "red_background.bin"
+    cmds = [{"cmd": "load_rom", "path": str(rom_path)}, {"cmd": "step_frame"},
+            {"cmd": "step_frame"}, {"cmd": "get_ram"}, {"cmd": "quit"}]
+    out = subprocess.run([str(STELLA)], input="\n".join(json.dumps(c) for c in cmds) + "\n",
+                         capture_output=True, text=True).stdout.splitlines()
+    ram = json.loads(out[3])
+    values = ram.get("ram") or ram.get("bytes") or ram.get("data")
+    assert values[0x00] == 0x4A and values[0x01] == 0x4A, ram

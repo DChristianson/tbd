@@ -97,3 +97,27 @@ def test_regrade_writes_a_new_folder_and_leaves_the_attempt_alone(tmp_path, monk
     after = sorted(p.name for p in attempt.iterdir())
     assert [n for n in after if n not in before] == [n for n in after if n.startswith("regrade-")]
     assert json.loads((attempt / "attempt.json").read_text()) == original
+
+
+def test_property_names_from_check_file():
+    names = case0.property_names(case0.CHECK_TEMPLATE.read_text())
+    assert names == ["frame_length", "vsync", "blanking", "background"]
+
+
+def test_single_failure_is_a_near_miss():
+    report = {"passed": False, "unexpected": [{"power_on": "zero", "failures": [
+        {"property": "vsync", "frame": 2, "line": 0, "clock": 45,
+         "observed": "sync began here and lasted 654 clocks",
+         "required": "sync from line 0 for exactly 3 lines (684 clocks)"}]}]}
+    g = categorize(report, ["frame_length", "vsync", "blanking", "background"])
+    assert g.category == "timing" and g.near_miss
+    assert g.properties == {"frame_length": "pass", "vsync": "fail",
+                            "blanking": "pass", "background": "pass"}
+    assert g.to_dict()["near_miss"] is True
+
+
+def test_crash_is_not_a_near_miss():
+    report = {"passed": False, "unexpected": [{"power_on": "zero", "failures": [],
+              "error": "simulator stopped at $f003: UnknownOpcode { pc: 61442, opcode: 171 }"}]}
+    g = categorize(report, ["frame_length"])
+    assert not g.near_miss and g.properties == {}

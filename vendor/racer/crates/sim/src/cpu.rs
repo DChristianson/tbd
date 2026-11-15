@@ -1,4 +1,7 @@
-//! The 6507 CPU: every documented NMOS 6502 instruction, cycle by cycle.
+//! The 6507 CPU: every documented NMOS 6502 instruction, cycle by cycle,
+//! plus the undocumented `LXA #imm` ($AB), which the standard `CLEAN_START`
+//! macro uses (tbd: undocumented opcodes are allowed in model-written
+//! programs; this was added in tbd's vendored copy, see vendor/racer/NOTICE.md).
 //!
 //! Each instruction is executed as the exact sequence of bus cycles the
 //! hardware performs, including the reads whose values are discarded ("dummy
@@ -54,7 +57,8 @@ impl<T> Regs<T> {
 /// bus may reflect a partly executed instruction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Stop {
-    /// An opcode that is not a documented NMOS 6502 instruction.
+    /// An opcode that is neither a documented NMOS 6502 instruction nor one of
+    /// the undocumented ones implemented here (`LXA`).
     UnknownOpcode { pc: u16, opcode: u8 },
     /// The opcode byte is not concrete.
     SymbolicOpcode { pc: u16 },
@@ -82,6 +86,8 @@ pub enum Op {
     Cld, Cli, Clv, Cmp, Cpx, Cpy, Dec, Dex, Dey, Eor, Inc, Inx, Iny, Jmp,
     Jsr, Lda, Ldx, Ldy, Lsr, Nop, Ora, Pha, Php, Pla, Plp, Rol, Ror, Rti,
     Rts, Sbc, Sec, Sed, Sei, Sta, Stx, Sty, Tax, Tay, Tsx, Txa, Txs, Tya,
+    /// Undocumented: `A = X = (A | $EE) & imm`, as Stella implements it.
+    Lxa,
 }
 
 /// Addressing modes.
@@ -108,7 +114,7 @@ pub enum Mode {
     Relative,
 }
 
-/// Decode an opcode. `None` for the 105 undocumented opcodes.
+/// Decode an opcode. `None` for the undocumented opcodes, except `LXA` ($AB).
 #[rustfmt::skip]
 pub fn decode(opcode: u8) -> Option<(Op, Mode)> {
     use Mode::*;
@@ -162,6 +168,7 @@ pub fn decode(opcode: u8) -> Option<(Op, Mode)> {
         0x84 => (Sty, ZeroPage), 0x94 => (Sty, ZeroPageX), 0x8C => (Sty, Absolute),
         0xAA => (Tax, Implied), 0xA8 => (Tay, Implied), 0xBA => (Tsx, Implied), 0x8A => (Txa, Implied),
         0x9A => (Txs, Implied), 0x98 => (Tya, Implied),
+        0xAB => (Lxa, Immediate),
         _ => return None,
     })
 }
@@ -422,6 +429,20 @@ impl<D: Domain, B: Bus<D>> Exec<'_, D, B> {
                     Ldx => self.r.x = v,
                     _ => self.r.y = v,
                 }
+            }
+            Lxa => {
+                // Real chips OR A with an unstable "magic" constant before the
+                // AND; $EE is the value Stella uses (64doc.txt), so the two
+                // agree. With imm = 0, as in CLEAN_START, the result is 0 on
+                // every chip. Two cycles: opcode and immediate fetch.
+                let m = self.operand(mode)?;
+                let magic = self.d.byte(0xEE);
+                let a = self.r.a.clone();
+                let ored = self.d.or(&a, &magic);
+                let v = self.d.and(&ored, &m);
+                self.set_nz(&v);
+                self.r.a = v.clone();
+                self.r.x = v;
             }
             And | Ora | Eor => {
                 let m = self.operand(mode)?;
