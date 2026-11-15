@@ -33,19 +33,56 @@ def rom():
     return result.rom
 
 
-def test_stable_framerate(rom):
+# NTSC frame layout, as in racer's check files for its sketch 0A: 262 lines,
+# VSYNC for 3 of them, a 192-line picture, blanked everywhere else.
+NTSC_LINES = 262
+NTSC_VSYNC_LINES = 3
+NTSC_PICTURE_LINES = 192
+NUM_FRAMES = 10
+
+
+@pytest.fixture
+def frames(rom):
+    result = run(rom, num_frames=NUM_FRAMES)
+    assert len(result.frames) == NUM_FRAMES
+    return result.frames
+
+
+def test_stable_framerate(frames):
     """Every frame takes the same number of cycles — that's what 'stable
     framerate' means at the hardware level: no jitter from varying branch
     paths in the kernel."""
-    result = run(rom, num_frames=10)
-    assert len(result.frames) == 10
-    cycle_counts = {frame.cycle_count for frame in result.frames}
-    assert len(cycle_counts) == 1
+    assert len({frame.cycle_count for frame in frames}) == 1
 
 
-def test_background_is_solid_red_every_scanline(rom):
-    """Every scanline, every frame, reads back as the red color index."""
-    result = run(rom, num_frames=10)
-    for frame in result.frames:
-        assert frame.scanline_colors
-        assert all(color == NTSC_RED for color in frame.scanline_colors)
+def test_frame_is_ntsc_length(frames):
+    """Stable is not enough: an NTSC TV expects 262 lines. A kernel that is
+    steady at 263 passed the test above (this fixture once did)."""
+    for frame in frames:
+        assert frame.scanlines == NTSC_LINES
+        assert len(frame.scanline_colors) == NTSC_LINES
+
+
+def test_vsync_lasts_three_lines(frames):
+    for frame in frames:
+        assert sum(frame.vsync) == NTSC_VSYNC_LINES
+
+
+def test_picture_is_192_contiguous_unblanked_lines(frames):
+    """Everything outside the picture is blanked (VBLANK on). Sampled once
+    per line, so a mid-line VBLANK change isn't seen; racer's checker checks
+    every color clock."""
+    for frame in frames:
+        shown = [i for i, blank in enumerate(frame.vblank) if not blank]
+        assert len(shown) == NTSC_PICTURE_LINES
+        assert shown == list(range(shown[0], shown[0] + NTSC_PICTURE_LINES))
+        assert not any(frame.vsync[i] for i in shown)
+
+
+def test_background_is_solid_red_every_picture_line(frames):
+    """Every unblanked line, every frame, has the red color index in COLUBK.
+    (Register value, not pixels: on-screen output needs a frame buffer.)"""
+    for frame in frames:
+        shown = [c for c, blank in zip(frame.scanline_colors, frame.vblank) if not blank]
+        assert shown
+        assert all(color == NTSC_RED for color in shown)
