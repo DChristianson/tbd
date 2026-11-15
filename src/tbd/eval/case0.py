@@ -49,6 +49,8 @@ ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "tests" / "fixtures"
 HEADERS = FIXTURES / "vendor" / "atari2600"
 CHECK_TEMPLATE = FIXTURES / "red_background.check.toml"
+# Relaxed tier: run when the strict check fails; passing it is a near miss.
+RELAXED_TEMPLATE = FIXTURES / "red_background.relaxed.check.toml"
 RACER_CHECK = Path(
     os.environ.get("TBD_RACER_CHECK")
     or ROOT / "vendor" / "racer" / "target" / "release" / "racer-check"
@@ -112,17 +114,20 @@ class Grade:
     properties: dict[str, str] = field(default_factory=dict)
     # Failed properties that don't count toward the grade (INFORMATIONAL).
     informational_failed: list[str] = field(default_factory=list)
+    # The relaxed tier's result, when the strict check failed after running:
+    # {"passed", "failed", "properties", "color", "detail"}.
+    relaxed: dict | None = None
 
     @property
     def near_miss(self) -> bool:
-        """Assembled, ran, and failed exactly one graded property."""
-        return not self.ok and len(self.failed) == 1 and bool(self.properties)
+        """Failed the strict check, passed the relaxed tier."""
+        return not self.ok and bool(self.relaxed and self.relaxed["passed"])
 
     def to_dict(self) -> dict:
         return {"ok": self.ok, "category": self.category, "detail": self.detail,
                 "failed": self.failed, "informational_failed": self.informational_failed,
                 "color": self.color, "properties": self.properties,
-                "near_miss": self.near_miss}
+                "near_miss": self.near_miss, "relaxed": self.relaxed}
 
 
 def parse_failures(report: dict) -> dict[str, dict]:
@@ -196,12 +201,12 @@ def _categorize(report: dict) -> Grade:
 _SHOWN_COLOR = re.compile(r"color \$([0-9a-fA-F]{2})")
 
 
-def red_retry_color(grade: Grade) -> int | None:
-    """If the background failed showing another accepted red, that red.
-    Independent of whatever else failed."""
-    if "background" not in grade.failed:
+def red_retry_color(grade: Grade, prop: str = "background") -> int | None:
+    """If `prop` failed showing another accepted red, that red. Independent of
+    whatever else failed."""
+    if prop not in grade.failed:
         return None
-    start = grade.detail.find("background:")
+    start = grade.detail.find(f"{prop}:")
     m = _SHOWN_COLOR.search(grade.detail[start:].split("; required")[0]) if start >= 0 else None
     if not m:
         return None
@@ -209,11 +214,12 @@ def red_retry_color(grade: Grade) -> int | None:
     return color if color in ACCEPTED_COLORS and color != DEFAULT_COLOR else None
 
 
-def run_racer_check(workdir: Path, color: int) -> dict:
-    template = CHECK_TEMPLATE.read_text()
+def run_racer_check(workdir: Path, color: int, template_path: Path = CHECK_TEMPLATE,
+                    prefix: str = "check") -> dict:
+    template = template_path.read_text()
     check = re.sub(r"(?m)^color = 0x[0-9a-fA-F]+$", f"color = 0x{color:02x}", template)
     check = check.replace('rom = "build/red_background.bin"', 'rom = "build/prog.bin"')
-    name = f"check-0x{color:02x}"
+    name = f"{prefix}-0x{color:02x}"
     (workdir / f"{name}.toml").write_text(check)
     proc = subprocess.run([str(RACER_CHECK), "--json", f"{name}.toml"], cwd=workdir,
                           capture_output=True, text=True, timeout=300)
@@ -261,8 +267,31 @@ def grade_program(code: str, workdir: Path) -> tuple[dict, Grade]:
         regrade = categorize(run_racer_check(workdir, other), names)
         if "background" not in regrade.failed:  # the color was the only background problem
             regrade.color = other
-            return asm_rec, regrade
+            grade = regrade
+            if grade.ok:
+                return asm_rec, grade
+    if grade.category in ("timing", "output_mismatch"):
+        grade.relaxed = grade_relaxed(workdir, grade.color or DEFAULT_COLOR)
     return asm_rec, grade
+
+
+def grade_relaxed(workdir: Path, color: int) -> dict:
+    """The relaxed tier, with the same $42-$46 color handling as the strict one."""
+    names = property_names(RELAXED_TEMPLATE.read_text())
+
+    def run(c: int) -> Grade:
+        g = categorize(run_racer_check(workdir, c, RELAXED_TEMPLATE, "relaxed"), names)
+        g.color = c
+        return g
+
+    g = run(color)
+    other = red_retry_color(g, "picture")
+    if other is not None and other != color:
+        retry = run(other)
+        if "picture" not in retry.failed:
+            g = retry
+    return {"passed": g.ok, "failed": g.failed, "properties": g.properties,
+            "color": g.color, "detail": g.detail}
 
 
 # ---------------------------------------------------------------- model

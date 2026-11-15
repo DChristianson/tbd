@@ -152,6 +152,20 @@ impl From<ChipName> for Chip {
 pub enum Kind {
     /// The frame is exactly `lines` lines long.
     FrameLength { lines: u32 },
+    /// The frame is from `min_lines` to `max_lines` lines long, inclusive
+    /// (added in tbd's vendored copy, for a relaxed tier of checks).
+    FrameLengthRange { min_lines: u32, max_lines: u32 },
+    /// A block of `lines` consecutive lines whose clocks in `clocks` all show
+    /// `color`, with no color on any other line. The block's first line, the
+    /// frame's first line showing any color, must be in `start_window`. A
+    /// picture that is right but sits a line or two off (added in tbd's
+    /// vendored copy, for a relaxed tier of checks).
+    PictureBlock {
+        lines: u32,
+        start_window: Span,
+        clocks: Span,
+        color: u8,
+    },
     /// `signal` is output as one unbroken span, beginning on line
     /// `first_line` and lasting exactly `lines` lines' worth of clocks
     /// (`lines` × 228). For `VSYNC`, this is how long sync lasts, wherever in
@@ -287,6 +301,8 @@ impl Kind {
     pub fn name(&self) -> &'static str {
         match self {
             Kind::FrameLength { .. } => "frame_length",
+            Kind::FrameLengthRange { .. } => "frame_length_range",
+            Kind::PictureBlock { .. } => "picture_block",
             Kind::SignalOnLines { .. } => "signal_on_lines",
             Kind::SignalSpan { .. } => "signal_span",
             Kind::BlankOutside { .. } => "blank_outside",
@@ -456,6 +472,7 @@ impl Property {
             self.kind,
             Kind::SignalOnLines { .. }
                 | Kind::SignalSpan { .. }
+                | Kind::PictureBlock { .. }
                 | Kind::BlankOutside { .. }
                 | Kind::ConstantOutput { .. }
                 | Kind::OutputByLine { .. }

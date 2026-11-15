@@ -115,17 +115,16 @@ def test_property_names_from_check_file():
     assert names == ["frame_length", "vsync_span", "vsync", "blanking", "background"]
 
 
-def test_single_failure_is_a_near_miss():
+def test_properties_listed_for_every_check_file_property():
     report = {"passed": False, "unexpected": [{"power_on": "zero", "failures": [
         {"property": "vsync_span", "frame": 2, "line": 0, "clock": 200,
          "observed": "sync began here and lasted 300 clocks",
          "required": "sync from line 0, lasting 456-912 clocks"}]}]}
-    names = case0.property_names(case0.CHECK_TEMPLATE.read_text())
-    g = categorize(report, names)
-    assert g.category == "timing" and g.near_miss
+    g = categorize(report, case0.property_names(case0.CHECK_TEMPLATE.read_text()))
+    assert g.category == "timing"
     assert g.properties == {"frame_length": "pass", "vsync_span": "fail", "vsync": "pass",
                             "blanking": "pass", "background": "pass"}
-    assert g.to_dict()["near_miss"] is True
+    assert not g.near_miss  # decided by the relaxed tier, which categorize doesn't run
 
 
 def test_crash_is_not_a_near_miss():
@@ -155,7 +154,7 @@ def test_informational_failure_does_not_hide_a_graded_one():
          "observed": "color $84", "required": "color $42"}]}]}
     g = categorize(report, case0.property_names(case0.CHECK_TEMPLATE.read_text()))
     assert not g.ok and g.failed == ["background"] and g.category == "output_mismatch"
-    assert g.near_miss and red_retry_color(g) is None
+    assert red_retry_color(g) is None
 
 
 def test_color_retry_happens_alongside_other_failures():
@@ -179,3 +178,34 @@ def test_anthropic_default_max_tokens(monkeypatch):
     assert case0.effective_max_tokens(args) == 4096
     args = fake_main_args(["--provider", "anthropic", "--model", "x", "--max-tokens", "1000"])
     assert case0.effective_max_tokens(args) == 1000
+
+
+def _ref():
+    return (FIXTURES / "red_background.asm").read_text().replace('include "vendor/atari2600/', 'include "')
+
+
+# One vertical-blank and one overscan line short: 260 lines, picture on 39-230.
+def _shifted(src):
+    return src.replace("    ldx #37\n", "    ldx #36\n", 1).replace("    ldx #29\n", "    ldx #28\n", 1)
+
+
+@pytest.mark.skipif(not case0.RACER_CHECK.exists(), reason="racer-check not built")
+def test_shifted_frame_is_a_near_miss(tmp_path):
+    _, g = grade_program(_shifted(_ref()).replace("lda #$42", "lda #$44"), tmp_path)
+    assert not g.ok
+    assert set(g.failed) == {"frame_length", "blanking", "background"}
+    assert g.relaxed["passed"] and g.relaxed["color"] == 0x44
+    assert g.near_miss and g.to_dict()["near_miss"]
+
+
+@pytest.mark.skipif(not case0.RACER_CHECK.exists(), reason="racer-check not built")
+def test_shifted_frame_in_the_wrong_color_is_not(tmp_path):
+    _, g = grade_program(_shifted(_ref()).replace("lda #$42", "lda #$84"), tmp_path)
+    assert not g.ok and not g.relaxed["passed"] and not g.near_miss
+    assert "picture" in g.relaxed["failed"]
+
+
+@pytest.mark.skipif(not case0.RACER_CHECK.exists(), reason="racer-check not built")
+def test_a_pass_runs_no_relaxed_tier(tmp_path):
+    _, g = grade_program(_ref(), tmp_path)
+    assert g.ok and g.relaxed is None and not g.near_miss

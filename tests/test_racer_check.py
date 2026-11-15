@@ -154,3 +154,56 @@ def test_signal_span_rejects_out_of_range(tmp_path):
     failure = report["unexpected"][0]["failures"][0]
     assert failure["property"] == "vsync_span"
     assert "lasted" in failure["observed"]
+
+
+# Sonnet 5.5's shape in case0-first-run: one vertical-blank line short and one
+# overscan line short, so 260 lines with the picture on lines 39-230.
+SHIFTED = (FIXTURES / "red_background.asm").read_text().replace(
+    "    ldx #37\n", "    ldx #36\n", 1).replace("    ldx #29\n", "    ldx #28\n", 1)
+
+RELAXED = (
+    'rom = "build/prog.bin"\n[run]\nframes = 10\nskip_frames = 1\nzero = true\nrandom_seeds = 5\n'
+    '[[property]]\nkind = "frame_length_range"\nmin_lines = {lo}\nmax_lines = {hi}\n'
+    '[[property]]\nkind = "picture_block"\nlines = 192\nstart_window = [{s0}, {s1}]\n'
+    'clocks = [68, 228]\ncolor = 0x42\n'
+)
+
+
+def _relaxed(tmp_path, source, lo=260, hi=264, s0=38, s1=43) -> dict:
+    src = tmp_path / "src"
+    src.mkdir(exist_ok=True)
+    shutil.copytree(FIXTURES / "vendor", src / "vendor", dirs_exist_ok=True)
+    (src / "prog.asm").write_text(source)
+    (tmp_path / "build").mkdir(exist_ok=True)
+    (tmp_path / "build" / "prog.bin").write_bytes(assemble(src / "prog.asm").rom)
+    (tmp_path / "relaxed.check.toml").write_text(RELAXED.format(lo=lo, hi=hi, s0=s0, s1=s1))
+    proc = subprocess.run([str(RACER_CHECK), "--json", "relaxed.check.toml"], cwd=tmp_path,
+                          capture_output=True, text=True)
+    assert proc.returncode in (0, 1), proc.stderr
+    return json.loads(proc.stdout.splitlines()[0])
+
+
+def _failed(report):
+    return sorted({f["property"] for r in report["unexpected"] for f in r["failures"]})
+
+
+def test_relaxed_tier_accepts_the_shifted_frame(tmp_path):
+    report = _relaxed(tmp_path, SHIFTED)
+    assert report["passed"], report["unexpected"][:1]
+
+
+def test_relaxed_tier_accepts_the_reference(tmp_path):
+    report = _relaxed(tmp_path, (FIXTURES / "red_background.asm").read_text())
+    assert report["passed"], report["unexpected"][:1]
+
+
+def test_frame_length_range_rejects_outside(tmp_path):
+    report = _relaxed(tmp_path, SHIFTED, lo=261, hi=264)
+    assert _failed(report) == ["frame_length_range"]
+
+
+def test_picture_block_rejects_start_outside_window(tmp_path):
+    report = _relaxed(tmp_path, SHIFTED, s0=40, s1=43)
+    assert _failed(report) == ["picture_block"]
+    f = report["unexpected"][0]["failures"][0]
+    assert f["line"] == 39

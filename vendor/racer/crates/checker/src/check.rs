@@ -153,6 +153,14 @@ pub fn check(
                     observed: format!("{length} lines"),
                     required: format!("{lines} lines"),
                 }),
+                Kind::FrameLengthRange { min_lines, max_lines } => {
+                    (!(*min_lines..=*max_lines).contains(&length)).then(|| Miss {
+                        line: None,
+                        clock: None,
+                        observed: format!("{length} lines"),
+                        required: format!("{min_lines}-{max_lines} lines"),
+                    })
+                }
                 Kind::Ram {
                     line, value, values, ..
                 }
@@ -294,7 +302,53 @@ fn check_frame(property: &Property, properties: &[Property], frame: &VideoFrame,
     let lines = &frame.lines;
     match &property.kind {
         // Checked against the frame length, or the state, by `check`.
-        Kind::FrameLength { .. } | Kind::Ram { .. } | Kind::State { .. } => None,
+        Kind::FrameLength { .. } | Kind::FrameLengthRange { .. } | Kind::Ram { .. } | Kind::State { .. } => {
+            None
+        }
+
+        Kind::PictureBlock {
+            lines: count,
+            start_window,
+            clocks,
+            color,
+        } => {
+            let colored = |line: &VideoLine| line.runs.iter().any(|r| matches!(r.signal, Signal::Color(_)));
+            let Some(first) = lines.iter().position(colored) else {
+                return Some(Miss {
+                    line: None,
+                    clock: None,
+                    observed: "no color on any line".into(),
+                    required: format!("{count} lines of {} starting on lines {start_window}", describe(Signal::Color(*color))),
+                });
+            };
+            let first = first as u32;
+            if !start_window.contains(first) {
+                return Some(Miss {
+                    line: Some(first),
+                    clock: None,
+                    observed: format!("the picture began on line {first}"),
+                    required: format!("the picture to begin on lines {start_window}"),
+                });
+            }
+            let block = crate::property::Span {
+                start: first,
+                end: first + count,
+            };
+            region_miss(lines, &block, clocks, |_| *color, &|_, _, _| false, "every clock of the picture")
+                .or_else(|| {
+                    lines.iter().enumerate().find_map(|(n, line)| {
+                        if block.contains(n as u32) {
+                            return None;
+                        }
+                        line.runs.iter().find(|r| matches!(r.signal, Signal::Color(_))).map(|r| Miss {
+                            line: Some(n as u32),
+                            clock: Some(r.start),
+                            observed: describe(r.signal),
+                            required: format!("no color outside the picture, lines {block}"),
+                        })
+                    })
+                })
+        }
 
         Kind::SignalSpan {
             signal,

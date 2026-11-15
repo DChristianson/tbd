@@ -81,6 +81,21 @@ fn write_property(out: &mut String, property: &Property) {
     };
     match &property.kind {
         Kind::FrameLength { lines } => field("lines", lines.to_string()),
+        Kind::FrameLengthRange { min_lines, max_lines } => {
+            field("min_lines", min_lines.to_string());
+            field("max_lines", max_lines.to_string());
+        }
+        Kind::PictureBlock {
+            lines,
+            start_window,
+            clocks,
+            color,
+        } => {
+            field("lines", lines.to_string());
+            field("start_window", span(start_window));
+            field("clocks", span(clocks));
+            field("color", hex(*color));
+        }
         Kind::SignalOnLines {
             signal,
             first_line,
