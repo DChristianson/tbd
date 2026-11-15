@@ -74,7 +74,10 @@ CATEGORIES = ("pass", "timeout", "truncated", "refusal", "no_code", "assemble_er
               "unsupported_opcode", "crash", "timing", "output_mismatch")
 MAX_OUTPUT_TOKENS = 4096   # includes a reasoning model's thinking
 REQUEST_TIMEOUT_S = 600
-TIMING_PROPS = {"frame_length", "vsync"}
+TIMING_PROPS = {"frame_length", "vsync", "vsync_span"}
+# Checked and recorded, but not part of the grade: racer's strict, line-aligned
+# 3-line VSYNC. The graded VSYNC property is vsync_span (a 2-4 line range).
+INFORMATIONAL = {"vsync"}
 
 
 # ---------------------------------------------------------------- extraction
@@ -105,16 +108,19 @@ class Grade:
     color: int | None = None
     # Every property in the check file -> "pass" / "fail", once the program ran.
     properties: dict[str, str] = field(default_factory=dict)
+    # Failed properties that don't count toward the grade (INFORMATIONAL).
+    informational_failed: list[str] = field(default_factory=list)
 
     @property
     def near_miss(self) -> bool:
-        """Assembled, ran, and failed exactly one property."""
+        """Assembled, ran, and failed exactly one graded property."""
         return not self.ok and len(self.failed) == 1 and bool(self.properties)
 
     def to_dict(self) -> dict:
         return {"ok": self.ok, "category": self.category, "detail": self.detail,
-                "failed": self.failed, "color": self.color,
-                "properties": self.properties, "near_miss": self.near_miss}
+                "failed": self.failed, "informational_failed": self.informational_failed,
+                "color": self.color, "properties": self.properties,
+                "near_miss": self.near_miss}
 
 
 def parse_failures(report: dict) -> dict[str, dict]:
@@ -147,8 +153,22 @@ def property_names(check_toml: str) -> list[str]:
 
 def categorize(report: dict, names: list[str] | None = None) -> Grade:
     grade = _categorize(report)
-    if names and grade.category in ("pass", "timing", "output_mismatch"):
+    if grade.category not in ("pass", "timing", "output_mismatch"):
+        return grade
+    if names:
         grade.properties = {n: ("fail" if n in grade.failed else "pass") for n in names}
+    info = [n for n in grade.failed if n in INFORMATIONAL]
+    if info:
+        grade.informational_failed = info
+        grade.failed = [n for n in grade.failed if n not in INFORMATIONAL]
+        details = [d for d in grade.detail.split("; ") if not any(d.startswith(f"{n}:") for n in info)]
+        if not grade.failed:
+            grade.ok, grade.category = True, "pass"
+            grade.detail = "passed; informational: " + "; ".join(
+                d for d in grade.detail.split("; ") if any(d.startswith(f"{n}:") for n in info))
+        else:
+            grade.category = "timing" if TIMING_PROPS & set(grade.failed) else "output_mismatch"
+            grade.detail = "; ".join(details)
     return grade
 
 

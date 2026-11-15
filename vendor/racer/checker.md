@@ -65,6 +65,7 @@ Each joystick, `joystick0` and `joystick1`, takes `up`, `down`, `left`, `right`,
 |---|---|---|
 | `frame_length` | `lines` | The frame is exactly `lines` lines long |
 | `signal_on_lines` | `signal` (`"sync"` or `"blank"`), `first_line`, `lines` | The signal is output as one unbroken span that begins on `first_line` and lasts exactly `lines` × 228 clocks. For sync, this checks the duration of `VSYNC` wherever in the line it begins |
+| `signal_span` | `signal` (`"sync"` or `"blank"`), `first_line`, `min_clocks`, `max_clocks` | The signal is output as one unbroken span that begins on `first_line`, at any clock, and lasts from `min_clocks` to `max_clocks` clocks inclusive: `signal_on_lines` with a tolerance. (Added in tbd's vendored copy.) |
 | `blank_outside` | `lines` | No color is output on any line outside `lines` |
 | `constant_output` | `lines`, `clocks`, `color` | Every clock in `clocks` of every line in `lines` shows `color` |
 | `output_by_line` | `lines`, `clocks`, `start`, `step` | Every clock in `clocks` of line `lines[0] + n` shows `(start + step × n) mod 256` |

@@ -101,17 +101,18 @@ def test_regrade_writes_a_new_folder_and_leaves_the_attempt_alone(tmp_path, monk
 
 def test_property_names_from_check_file():
     names = case0.property_names(case0.CHECK_TEMPLATE.read_text())
-    assert names == ["frame_length", "vsync", "blanking", "background"]
+    assert names == ["frame_length", "vsync_span", "vsync", "blanking", "background"]
 
 
 def test_single_failure_is_a_near_miss():
     report = {"passed": False, "unexpected": [{"power_on": "zero", "failures": [
-        {"property": "vsync", "frame": 2, "line": 0, "clock": 45,
-         "observed": "sync began here and lasted 654 clocks",
-         "required": "sync from line 0 for exactly 3 lines (684 clocks)"}]}]}
-    g = categorize(report, ["frame_length", "vsync", "blanking", "background"])
+        {"property": "vsync_span", "frame": 2, "line": 0, "clock": 200,
+         "observed": "sync began here and lasted 300 clocks",
+         "required": "sync from line 0, lasting 456-912 clocks"}]}]}
+    names = case0.property_names(case0.CHECK_TEMPLATE.read_text())
+    g = categorize(report, names)
     assert g.category == "timing" and g.near_miss
-    assert g.properties == {"frame_length": "pass", "vsync": "fail",
+    assert g.properties == {"frame_length": "pass", "vsync_span": "fail", "vsync": "pass",
                             "blanking": "pass", "background": "pass"}
     assert g.to_dict()["near_miss"] is True
 
@@ -121,3 +122,26 @@ def test_crash_is_not_a_near_miss():
               "error": "simulator stopped at $f003: UnknownOpcode { pc: 61442, opcode: 171 }"}]}
     g = categorize(report, ["frame_length"])
     assert not g.near_miss and g.properties == {}
+
+
+def test_strict_vsync_is_informational():
+    report = {"passed": False, "unexpected": [{"power_on": "zero", "failures": [
+        {"property": "vsync", "frame": 2, "line": 0, "clock": 45,
+         "observed": "sync began here and lasted 654 clocks",
+         "required": "sync from line 0 for exactly 3 lines (684 clocks)"}]}]}
+    names = case0.property_names(case0.CHECK_TEMPLATE.read_text())
+    g = categorize(report, names)
+    assert g.ok and g.category == "pass"
+    assert g.informational_failed == ["vsync"] and g.failed == []
+    assert g.properties["vsync"] == "fail" and g.properties["vsync_span"] == "pass"
+    assert not g.near_miss
+
+
+def test_informational_failure_does_not_hide_a_graded_one():
+    report = {"passed": False, "unexpected": [{"power_on": "zero", "failures": [
+        {"property": "vsync", "frame": 2, "observed": "x", "required": "y"},
+        {"property": "background", "frame": 2, "line": 40, "clock": 68,
+         "observed": "color $84", "required": "color $42"}]}]}
+    g = categorize(report, case0.property_names(case0.CHECK_TEMPLATE.read_text()))
+    assert not g.ok and g.failed == ["background"] and g.category == "output_mismatch"
+    assert g.near_miss and red_retry_color(g) is None

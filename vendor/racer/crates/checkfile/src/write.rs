@@ -90,6 +90,17 @@ fn write_property(out: &mut String, property: &Property) {
             field("first_line", first_line.to_string());
             field("lines", lines.to_string());
         }
+        Kind::SignalSpan {
+            signal,
+            first_line,
+            min_clocks,
+            max_clocks,
+        } => {
+            field("signal", format!("{:?}", signal.name()));
+            field("first_line", first_line.to_string());
+            field("min_clocks", min_clocks.to_string());
+            field("max_clocks", max_clocks.to_string());
+        }
         Kind::BlankOutside { lines } => field("lines", span(lines)),
         Kind::ConstantOutput { lines, clocks, color } => {
             field("lines", span(lines));

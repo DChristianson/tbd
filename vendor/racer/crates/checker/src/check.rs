@@ -2,7 +2,7 @@
 
 use crate::property::{register_name, resolve, Kind, Property};
 use racer_sim::tia::{Signal, CLOCKS_PER_LINE, HBLANK_CLOCKS};
-use racer_sim::trace::{Chip, Trace, VideoFrame};
+use racer_sim::trace::{Chip, Trace, VideoFrame, VideoLine};
 use serde::Serialize;
 use std::fmt;
 
@@ -269,11 +269,69 @@ fn flicker_miss(checked: Vec<(u64, Option<Miss>)>, shown: u32, frames: u32) -> (
     (Some((a, miss)), frames_failed)
 }
 
+/// Every unbroken run of `wanted` across a frame's lines, as (line it began
+/// on, clock it began at, length in clocks).
+fn signal_spans(lines: &[VideoLine], wanted: Signal) -> Vec<(u32, u16, u32)> {
+    let mut spans: Vec<(u32, u16, u32)> = Vec::new();
+    let mut open = false;
+    for (n, line) in lines.iter().enumerate() {
+        for run in &line.runs {
+            if run.signal == wanted {
+                match (open, spans.last_mut()) {
+                    (true, Some(last)) => last.2 += run.length as u32,
+                    _ => spans.push((n as u32, run.start, run.length as u32)),
+                }
+                open = true;
+            } else {
+                open = false;
+            }
+        }
+    }
+    spans
+}
+
 fn check_frame(property: &Property, properties: &[Property], frame: &VideoFrame, trace: &Trace) -> Option<Miss> {
     let lines = &frame.lines;
     match &property.kind {
         // Checked against the frame length, or the state, by `check`.
         Kind::FrameLength { .. } | Kind::Ram { .. } | Kind::State { .. } => None,
+
+        Kind::SignalSpan {
+            signal,
+            first_line,
+            min_clocks,
+            max_clocks,
+        } => {
+            let wanted = signal.signal();
+            let spans = signal_spans(lines, wanted);
+            let required = format!(
+                "{} from line {first_line}, lasting {min_clocks}-{max_clocks} clocks",
+                describe(wanted)
+            );
+            match spans.as_slice() {
+                [] => Some(Miss {
+                    line: None,
+                    clock: None,
+                    observed: format!("no {}", describe(wanted)),
+                    required,
+                }),
+                [(line, clock, len), ..] if *line != *first_line || !(*min_clocks..=*max_clocks).contains(len) => {
+                    Some(Miss {
+                        line: Some(*line),
+                        clock: Some(*clock),
+                        observed: format!("{} began here and lasted {len} clocks", describe(wanted)),
+                        required,
+                    })
+                }
+                [_, (line, clock, _), ..] => Some(Miss {
+                    line: Some(*line),
+                    clock: Some(*clock),
+                    observed: format!("{} began again here", describe(wanted)),
+                    required,
+                }),
+                _ => None,
+            }
+        }
 
         Kind::SignalOnLines {
             signal,
@@ -281,22 +339,7 @@ fn check_frame(property: &Property, properties: &[Property], frame: &VideoFrame,
             lines: count,
         } => {
             let wanted = signal.signal();
-            // Every run of the signal, as (line, clock, length in clocks).
-            let mut spans: Vec<(u32, u16, u32)> = Vec::new();
-            let mut open = false;
-            for (n, line) in lines.iter().enumerate() {
-                for run in &line.runs {
-                    if run.signal == wanted {
-                        match (open, spans.last_mut()) {
-                            (true, Some(last)) => last.2 += run.length as u32,
-                            _ => spans.push((n as u32, run.start, run.length as u32)),
-                        }
-                        open = true;
-                    } else {
-                        open = false;
-                    }
-                }
-            }
+            let spans = signal_spans(lines, wanted);
             let required = format!(
                 "{} from line {first_line} for exactly {count} lines ({} clocks)",
                 describe(wanted),

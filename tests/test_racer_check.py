@@ -112,3 +112,45 @@ def test_lxa_agrees_with_stella(tmp_path):
     ram = json.loads(out[3])
     values = ram.get("ram") or ram.get("bytes") or ram.get("data")
     assert values[0x00] == 0x4A and values[0x01] == 0x4A, ram
+
+
+SPAN_CHECK = (
+    'rom = "build/prog.bin"\n[run]\nframes = 10\nskip_frames = 1\nzero = true\nrandom_seeds = 5\n'
+    '[[property]]\nname = "vsync_span"\nkind = "signal_span"\nsignal = "sync"\n'
+    'first_line = 0\nmin_clocks = {lo}\nmax_clocks = {hi}\n'
+)
+
+
+def _span_check(tmp_path, source: str, lo: int, hi: int) -> dict:
+    src = tmp_path / "src"
+    src.mkdir(exist_ok=True)
+    shutil.copytree(FIXTURES / "vendor", src / "vendor", dirs_exist_ok=True)
+    (src / "prog.asm").write_text(source)
+    rom = assemble(src / "prog.asm").rom
+    (tmp_path / "build").mkdir(exist_ok=True)
+    (tmp_path / "build" / "prog.bin").write_bytes(rom)
+    (tmp_path / "span.check.toml").write_text(SPAN_CHECK.format(lo=lo, hi=hi))
+    proc = subprocess.run([str(RACER_CHECK), "--json", "span.check.toml"], cwd=tmp_path,
+                          capture_output=True, text=True)
+    assert proc.returncode in (0, 1), proc.stderr
+    return json.loads(proc.stdout.splitlines()[0])
+
+
+# Sync turned on 11 CPU cycles into line 0 and off after three WSYNCs, as in
+# Claude Opus 5.5's first Case 0 attempt: 654 clocks instead of 684.
+LATE_VSYNC = (FIXTURES / "red_background.asm").read_text().replace(
+    "    VERTICAL_SYNC\n",
+    "    lda #2\n    sta VSYNC\n    sta WSYNC\n    sta WSYNC\n    sta WSYNC\n    lda #0\n    sta VSYNC\n", 1)
+
+
+def test_signal_span_accepts_a_late_vsync_within_range(tmp_path):
+    report = _span_check(tmp_path, LATE_VSYNC, 456, 912)
+    assert report["passed"], report["unexpected"][:1]
+
+
+def test_signal_span_rejects_out_of_range(tmp_path):
+    report = _span_check(tmp_path, LATE_VSYNC, 684, 912)
+    assert not report["passed"]
+    failure = report["unexpected"][0]["failures"][0]
+    assert failure["property"] == "vsync_span"
+    assert "lasted" in failure["observed"]

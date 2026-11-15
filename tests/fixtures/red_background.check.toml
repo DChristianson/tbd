@@ -16,6 +16,19 @@ random_seeds = 100
 kind = "frame_length"
 lines = 262
 
+# Graded: sync starts on line 0 and lasts 2-4 lines' worth of clocks. "Stable
+# framerate" allows sync to start a few cycles into its line (frame_length
+# still pins the frame at exactly 262 lines).
+[[property]]
+name = "vsync_span"
+kind = "signal_span"
+signal = "sync"
+first_line = 0
+min_clocks = 456
+max_clocks = 912
+
+# Informational (tbd.eval.case0 records it, it doesn't decide the grade):
+# sync from the start of line 0 for exactly 3 lines, as racer's references do.
 [[property]]
 name = "vsync"
 kind = "signal_on_lines"

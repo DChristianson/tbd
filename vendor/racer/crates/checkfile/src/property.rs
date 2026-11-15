@@ -161,6 +161,17 @@ pub enum Kind {
         first_line: u32,
         lines: u32,
     },
+    /// `signal` is output as one unbroken span, beginning on line
+    /// `first_line` (at any clock) and lasting from `min_clocks` to
+    /// `max_clocks` clocks, inclusive: `SignalOnLines` with a tolerance, for a
+    /// sync that starts a few cycles into its line (added in tbd's vendored
+    /// copy; see vendor/racer/NOTICE.md).
+    SignalSpan {
+        signal: SignalName,
+        first_line: u32,
+        min_clocks: u32,
+        max_clocks: u32,
+    },
     /// No color is output on any line outside `lines`.
     BlankOutside { lines: Span },
     /// Every clock in `clocks` of every line in `lines` shows `color`.
@@ -277,6 +288,7 @@ impl Kind {
         match self {
             Kind::FrameLength { .. } => "frame_length",
             Kind::SignalOnLines { .. } => "signal_on_lines",
+            Kind::SignalSpan { .. } => "signal_span",
             Kind::BlankOutside { .. } => "blank_outside",
             Kind::ConstantOutput { .. } => "constant_output",
             Kind::OutputByLine { .. } => "output_by_line",
@@ -443,6 +455,7 @@ impl Property {
         matches!(
             self.kind,
             Kind::SignalOnLines { .. }
+                | Kind::SignalSpan { .. }
                 | Kind::BlankOutside { .. }
                 | Kind::ConstantOutput { .. }
                 | Kind::OutputByLine { .. }

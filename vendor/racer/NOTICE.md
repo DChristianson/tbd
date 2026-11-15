@@ -19,11 +19,17 @@ and `examples/` (they need racer's reference ROMs and ~600 MB of CPU test
 data); the `racer-crosscheck` binary (needs the other emulators). The
 `crosscheck` module stays in the checker library, unchanged.
 
-**Modified, one change (2026-11-15):** `crates/sim/src/cpu.rs` adds the
-undocumented `LXA #imm` (`$AB`), `A = X = (A | $EE) & imm` as Stella does it,
-because model-written programs may use undocumented opcodes and the standard
-`CLEAN_START` macro uses `lxa #0` (beads tbd-818.11). Upstream racer doesn't
-have this yet (beads: upstream the LXA change). Otherwise unmodified. The
+**Modified, two changes (2026-11-15).** Upstream racer has neither yet
+(beads tbd-818.15). Otherwise unmodified.
+
+1. `crates/sim/src/cpu.rs` adds the undocumented `LXA #imm` (`$AB`),
+   `A = X = (A | $EE) & imm` as Stella does it, because model-written
+   programs may use undocumented opcodes and the standard `CLEAN_START`
+   macro uses `lxa #0` (beads tbd-818.11).
+2. A new property kind, `signal_span` (`crates/checkfile/src/property.rs`,
+   `write.rs`, `crates/checker/src/check.rs`, documented in `checker.md`):
+   `signal_on_lines` with a tolerance on how long the signal lasts, so a
+   VSYNC that starts a few cycles into line 0 can pass. The
 workspace `Cargo.toml` here is new, listing only these three crates. To update: copy the same files from a newer racer commit,
 update the commit above, and rebuild.
 
