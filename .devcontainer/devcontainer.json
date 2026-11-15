@@ -42,7 +42,10 @@
   "remoteEnv": {
     // Don't hand your Mac's SSH keys (via the forwarded ssh-agent) to code in
     // the container. See README "Pushing to GitHub".
-    "SSH_AUTH_SOCK": ""
+    "SSH_AUTH_SOCK": "",
+    // Key for Claude API evals (tbd.eval), from your Mac's environment. Its own
+    // name so Claude Code in here keeps its login instead of switching to it.
+    "TBD_ANTHROPIC_API_KEY": "${localEnv:TBD_ANTHROPIC_API_KEY}"
   },
 
   // Runs once when the container is created.

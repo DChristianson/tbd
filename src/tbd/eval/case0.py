@@ -70,7 +70,7 @@ PROMPT = (
 RED_HUE = 0x40
 DEFAULT_COLOR = 0x42
 
-CATEGORIES = ("pass", "timeout", "truncated", "no_code", "assemble_error",
+CATEGORIES = ("pass", "timeout", "truncated", "refusal", "no_code", "assemble_error",
               "unsupported_opcode", "crash", "timing", "output_mismatch")
 MAX_OUTPUT_TOKENS = 4096   # includes a reasoning model's thinking
 REQUEST_TIMEOUT_S = 600
@@ -336,9 +336,7 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
         t0 = time.time()
         workdir = job_dir / f"sample-{sample:02d}" / f"attempt-{attempt_no}"
         try:
-            resp = ollama_chat(args.model, messages, temperature=args.temperature, seed=seed,
-                               think=args.think, max_tokens=args.max_tokens,
-                               num_ctx=args.num_ctx, timeout_s=args.timeout, save_to=workdir)
+            resp = chat(args, messages, seed, workdir)
         except RequestTimeout as e:
             resp = {**e.partial, "error": str(e)}
             workdir.mkdir(parents=True, exist_ok=True)
@@ -351,7 +349,10 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
         if "error" in resp:
             asm_rec, grade = empty, Grade(False, "timeout", detail=resp["error"])
             workdir.mkdir(parents=True, exist_ok=True)
-        elif code is None and resp.get("done_reason") == "length":
+        elif resp.get("done_reason") == "refusal":
+            asm_rec, grade = empty, Grade(False, "refusal")
+            workdir.mkdir(parents=True, exist_ok=True)
+        elif code is None and resp.get("done_reason") in ("length", "max_tokens"):
             asm_rec, grade = empty, Grade(False, "truncated")
             workdir.mkdir(parents=True, exist_ok=True)
         elif code is None:
@@ -369,6 +370,9 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
                        "tokens_per_s": round(resp["eval_count"] / (resp["eval_duration"] / 1e9), 1)
                        if resp.get("eval_duration") else None},
             "wall_ms": wall_ms,
+            "provider": args.provider, "requested_model": args.model,
+            "served_model": resp.get("served_model", args.model),
+            "fallback_ran": resp.get("fallback_ran", False), "cost_usd": resp.get("cost_usd"),
         }
         (workdir / "attempt.json").write_text(json.dumps(record, indent=2))
         log.write(json.dumps(record) + "\n")
@@ -381,14 +385,27 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
             return {"passed": False, "attempts": attempt_no, "first_category": first}
         if grade.ok:
             return {"passed": True, "attempts": attempt_no, "first_category": None}
-        messages += [{"role": "assistant", "content": text},
+        messages += [{"role": "assistant", "content": resp.get("assistant_content") or text},
                      {"role": "user", "content": feedback(asm_rec, grade)}]
     return {"passed": False, "attempts": budget, "first_category": first}
 
 
+def chat(args, messages: list[dict], seed: int, workdir: Path) -> dict:
+    if args.provider == "anthropic":
+        from tbd.eval.claude_client import claude_chat
+        return claude_chat(args.model, messages, max_tokens=args.max_tokens, effort=args.effort,
+                           timeout_s=args.timeout, save_to=workdir, timeout_error=RequestTimeout)
+    return ollama_chat(args.model, messages, temperature=args.temperature, seed=seed,
+                       think=args.think, max_tokens=args.max_tokens,
+                       num_ctx=args.num_ctx, timeout_s=args.timeout, save_to=workdir)
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p.add_argument("--provider", choices=("ollama", "anthropic"), default="ollama")
     p.add_argument("--model", required=True)
+    p.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"), default="high",
+                   help="anthropic only: thinking depth (claude-opus-5-5 defaults to medium)")
     p.add_argument("--samples", type=int, default=10)
     p.add_argument("--mode", choices=("one-shot", "tool-feedback"), default="one-shot")
     p.add_argument("--retries", type=int, default=3, help="tool-feedback retries after the first")
@@ -410,6 +427,19 @@ def main(argv: list[str] | None = None) -> int:
     if not RACER_CHECK.exists():
         p.error(f"racer-check not found at {RACER_CHECK}; see vendor/racer/NOTICE.md")
 
+    if args.provider == "anthropic":
+        # The SDK only notices missing credentials when it sends a request, so
+        # make one free call (model lookup) before any run folder exists.
+        try:
+            import anthropic
+        except ImportError:
+            p.error("the anthropic SDK isn't installed: pip install -e '.[eval]'")
+        try:
+            from tbd.eval.claude_client import make_client
+            make_client(anthropic).models.retrieve(args.model)
+        except (anthropic.AnthropicError, TypeError) as e:
+            p.error(f"Anthropic API not usable for {args.model}: {type(e).__name__}: {e}")
+
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     exp_id = args.experiment or f"case0-{stamp}"
     exp_dir = args.out / exp_id
@@ -419,13 +449,21 @@ def main(argv: list[str] | None = None) -> int:
         p.error(f"{job_dir} already exists; runs are never overwritten. Use a new --experiment.")
     job_dir.mkdir(parents=True)
 
+    anthropic_run = args.provider == "anthropic"
     config = {
-        "model": args.model, "model_digest": model_digest(args.model), "runtime": "ollama",
+        "provider": args.provider,
+        "model": args.model,
+        "model_digest": None if anthropic_run else model_digest(args.model),
+        "runtime": "anthropic-api" if anthropic_run else "ollama",
         "facts": "none", "fact_snapshot": None, "task": "t1", "variant": "canonical",
-        "mode": args.mode, "samples": args.samples, "temperature": args.temperature,
-        "seed": args.seed, "retries": args.retries if args.mode == "tool-feedback" else 0,
-        "think": args.think, "max_tokens": args.max_tokens,
-        "num_ctx": args.num_ctx or max(16384, args.max_tokens + 4096),
+        "mode": args.mode, "samples": args.samples,
+        # Claude takes no temperature or seed; record that instead of a value we didn't send.
+        "temperature": None if anthropic_run else args.temperature,
+        "seed": None if anthropic_run else args.seed,
+        "effort": args.effort if anthropic_run else None,
+        "thinking": {"type": "adaptive", "display": "summarized"} if anthropic_run else args.think, "retries": args.retries if args.mode == "tool-feedback" else 0,
+        "max_tokens": args.max_tokens,
+        "num_ctx": None if anthropic_run else (args.num_ctx or max(16384, args.max_tokens + 4096)),
         "request_timeout_s": args.timeout, "prompt": PROMPT, "grader": "racer-check",
         "check_template": str(CHECK_TEMPLATE.relative_to(ROOT)),
         "accepted_colors": "0x40-0x4E (hue 4, NTSC red)",
@@ -435,7 +473,8 @@ def main(argv: list[str] | None = None) -> int:
         manifest.write_text(json.dumps({"experiment_id": exp_id, "created": stamp,
                                         "git_sha": git_sha()}, indent=2))
     (job_dir / "config.json").write_text(json.dumps(config, indent=2))
-    (job_dir / "model_template.txt").write_text(model_template(args.model))
+    if not anthropic_run:
+        (job_dir / "model_template.txt").write_text(model_template(args.model))
 
     print(f"{exp_id}/{job_id}: {args.samples} samples -> {job_dir}", flush=True)
     t0 = time.time()
@@ -451,16 +490,18 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         status = "interrupted"
         raise
-    except BaseException:
+    except BaseException as e:
         status = "failed"
+        error = f"{type(e).__name__}: {e}"
         raise
     finally:
-        metrics = write_metrics(job_dir, args, results, status, t0)
+        metrics = write_metrics(job_dir, args, results, status, t0, locals().get("error"))
         print(json.dumps(metrics, indent=2))
     return 0
 
 
-def write_metrics(job_dir: Path, args, results: list[dict], status: str, t0: float) -> dict:
+def write_metrics(job_dir: Path, args, results: list[dict], status: str, t0: float,
+                  error: str | None = None) -> dict:
     done = len(results)
     passed = sum(r["passed"] for r in results)
     firsts: dict[str, int] = {}
@@ -468,7 +509,7 @@ def write_metrics(job_dir: Path, args, results: list[dict], status: str, t0: flo
         key = "pass" if r["passed"] and r["attempts"] == 1 else (r["first_category"] or "pass")
         firsts[key] = firsts.get(key, 0) + 1
     metrics = {
-        "status": status, "samples_planned": args.samples, "samples_done": done,
+        "status": status, "error": error, "samples_planned": args.samples, "samples_done": done,
         "passed": passed, "pass_rate": passed / done if done else None,
         "pass_at_1_first_attempt": (sum(r["passed"] and r["attempts"] == 1 for r in results) / done
                                     if done else None),
