@@ -1,19 +1,4 @@
-; broken/step-1.asm - the reference stepping by 1. The TIA ignores bit 0, so
-; colors repeat in pairs. Must fail.
-;
-; Task 1 (cycle) reference: a stable NTSC frame, one solid color per frame,
-; the color value going up by 2 every frame.
-;
-; Color, in RAM, is zeroed by CLEAN_START and incremented twice at the top of
-; each frame, during vertical blank, before COLUBK is set from it.
-;
-; Frame, with line 0 the line VSYNC turns on (racer's numbering):
-;   lines   0-2    VSYNC
-;   lines   3-39   vertical blank
-;   lines  40-231  picture, in this frame's color
-;   lines 232-261  overscan, blanked
-; 262 lines. VERTICAL_SYNC's first WSYNC ends line 261, so overscan counts 29
-; WSYNCs, not 30 (30 made 263 lines).
+; Broken: color steps by 1, not 2. Must fail the check.
 
     processor 6502
 NO_ILLEGAL_OPCODES = 1      ; CLEAN_START without lxa (see tbd-dpu.10)

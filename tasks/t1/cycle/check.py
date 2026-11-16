@@ -1,17 +1,12 @@
-"""Task 1, cycle: a solid background whose color value goes up by 2 every
-frame, wrapping at 256.
+"""Checks for a color cycling background.
 
-Frame timing and blanking come from check.toml. The color has no racer
-property kind, so it is checked here over racer-check --frames: each checked
-frame is one color on every visible clock of lines 40-231 ("solid"), and each
-frame's color is the previous frame's plus 2 ("steps"). The first frame's
-color can be anything, so it doesn't matter whether a program steps before or
-after drawing its first frame.
+Uses check.toml for the frame timing, then racer-check --frames to check
+that every frame is one solid color, 2 more than the frame before.
 """
 
 from tbd.eval.checks import Racer, failure, merge, report
 
-# Recorded, not graded: racer's strict, line-aligned 3-line VSYNC.
+# Reported, not graded: racer's strict 3-line VSYNC.
 INFORMATIONAL = {"vsync"}
 
 LINES = range(40, 232)
