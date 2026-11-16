@@ -142,8 +142,9 @@ experiments/<experiment>/jobs/<model>-t1-canonical-none-<mode>/
         response.json    the raw reply; response.md / thinking.md: its text
         prog.asm         the program extracted from the reply
         assemble.json    DASM's result
-        check-0xNN.*     the strict check file used and racer-check's JSON
-        relaxed-0xNN.*   the relaxed tier, when the strict one failed
+        check.*          the strict check file run and racer-check's JSON
+                         (check-<property>-0xNN.*: re-run at an accepted color)
+        relaxed.check.*  the relaxed tier, when the strict one failed
         attempt.json     the attempt record and its grade
 ```
 
