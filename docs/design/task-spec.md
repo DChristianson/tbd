@@ -290,9 +290,14 @@ COLUBK register, not what's on screen. So (d) is the first variant with a
 - Python checks report failures in racer's shape (property name, frame,
   line, clock, observed, required). Tool feedback then reads the same for
   either kind of check.
-- **The prompt still has to give the rule:** "...a solid background whose
-  color changes every frame: each frame's COLUBK value is the previous
-  frame's plus 2, wrapping at 256."
+- **The prompt still has to give the rule:** "...fills the screen
+  background with a solid color that changes every frame: each frame's
+  background color value is the previous frame's plus 2, wrapping around at
+  256." It says "color value", not COLUBK, so it doesn't name the mechanism.
+- Built as `tasks/t1/cycle/`: the properties are `solid` and `steps`, and
+  `broken/` has a step of 1 (colors repeat in pairs, because bit 0 is
+  ignored), a color that never changes, and a frame that isn't solid. A
+  program that steps after drawing its first frame passes too.
 - Don't export all 101 runs: a run is 100 frames × 262 lines, and a few
   seeds are enough for this property. Timing and blanking still run over all
   101 in the check file.

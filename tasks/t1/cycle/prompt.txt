@@ -1,0 +1,3 @@
+Create a kernel with stable framerate that fills the screen background with a solid color that changes every frame: each frame's background color value is the previous frame's plus 2, wrapping around at 256.
+
+Target: Atari 2600, NTSC. Write 6502 assembly for the DASM assembler. The standard headers are available: include "vcs.h" and include "macro.h". Reply with the complete program in a single ```asm code block.

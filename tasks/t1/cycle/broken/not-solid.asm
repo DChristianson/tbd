@@ -1,0 +1,71 @@
+; broken/not-solid.asm - the reference, but the bottom half is white. Must fail.
+;
+; Task 1 (cycle) reference: a stable NTSC frame, one solid color per frame,
+; the color value going up by 2 every frame.
+;
+; Color, in RAM, is zeroed by CLEAN_START and incremented twice at the top of
+; each frame, during vertical blank, before COLUBK is set from it.
+;
+; Frame, with line 0 the line VSYNC turns on (racer's numbering):
+;   lines   0-2    VSYNC
+;   lines   3-39   vertical blank
+;   lines  40-231  picture, in this frame's color
+;   lines 232-261  overscan, blanked
+; 262 lines. VERTICAL_SYNC's first WSYNC ends line 261, so overscan counts 29
+; WSYNCs, not 30 (30 made 263 lines).
+
+    processor 6502
+NO_ILLEGAL_OPCODES = 1      ; CLEAN_START without lxa (see tbd-dpu.10)
+    include "vcs.h"
+    include "macro.h"
+
+Color = $80
+
+    SEG CODE
+    ORG $F000
+
+Reset:
+    CLEAN_START
+
+NewFrame:
+    VERTICAL_SYNC
+
+    inc Color
+    inc Color
+    lda Color
+    sta COLUBK
+    
+    ldx #37
+_vblank_loop:
+    sta WSYNC
+    dex
+    bne _vblank_loop
+    stx VBLANK
+    
+    ldx #96
+_top_loop:
+    sta WSYNC
+    dex
+    bne _top_loop
+    lda #$0E                ; line 136: white, so the frame isn't solid
+    sta COLUBK
+    ldx #96
+_bottom_loop:
+    sta WSYNC
+    dex
+    bne _bottom_loop
+
+    lda #2
+    sta VBLANK              ; line 232: blank overscan, VSYNC and vertical blank
+
+    ldx #29
+_overscan_loop:
+    sta WSYNC
+    dex
+    bne _overscan_loop
+    jmp NewFrame
+
+    org $FFFA
+    .word Reset     ; NMI    (unused on the 2600, but the vector is read)
+    .word Reset     ; RESET
+    .word Reset     ; IRQ    (unused, no maskable IRQ source is enabled)
