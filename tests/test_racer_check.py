@@ -1,4 +1,6 @@
-"""The vendored racer-check (vendor/racer/) grades Case 0's reference.
+"""The vendored racer-check (vendor/racer/) and tbd's additions to it, using
+Task 1's reference. That every task's reference passes its own check is
+tests/test_tasks.py.
 
 racer-check reads a check file whose `rom` path is relative to the check
 file, so each test assembles into a temp dir and writes its check file there
@@ -14,8 +16,8 @@ from tbd.eval.grading import with_rom
 from tbd.paths import HEADERS, RACER_CHECK, TASKS
 from tbd.tools.assembler import assemble
 
-REFERENCE = TASKS / "t1" / "red_background.asm"
-CHECK = TASKS / "t1" / "red_background.check.toml"
+REFERENCE = TASKS / "t1" / "canonical" / "reference.asm"
+CHECK = TASKS / "t1" / "canonical" / "check.toml"
 
 pytestmark = pytest.mark.skipif(
     not RACER_CHECK.exists(),
@@ -48,20 +50,6 @@ def _racer(tmp_path, source: str, check_toml: str) -> dict:
 def _check(tmp_path, source: str) -> dict:
     """Against Case 0's strict check file."""
     return _racer(tmp_path, source, with_rom(CHECK.read_text()))
-
-
-def test_case0_reference_passes_racer_check(tmp_path):
-    report = _check(tmp_path, REFERENCE.read_text())
-    assert report["passed"], report["unexpected"]
-    assert report["runs"] == 101
-
-
-def test_racer_check_rejects_a_263_line_frame(tmp_path):
-    """The bug Case 0 once had: one overscan line too many."""
-    source = REFERENCE.read_text()
-    assert "ldx #29" in source
-    report = _check(tmp_path, source.replace("ldx #29", "ldx #30"))
-    assert not report["passed"]
 
 
 def test_case0_with_lxa_passes(tmp_path):

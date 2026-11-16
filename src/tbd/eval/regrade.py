@@ -9,9 +9,11 @@ folder is changed. Each re-grade goes in its own new folder,
     <attempt>/regrade-<UTC time>/
         regrade.json      original grade, new grade, grader commit (and whether
                           the tree had uncommitted changes)
-        prog.asm, assemble.json, check-0xNN.toml, check-0xNN.result.json
+        prog.asm, assemble.json, <check>.toml, <check>.result.json
 
-so the original record stays as it was and every re-grade is kept.
+so the original record stays as it was and every re-grade is kept. The task
+variant comes from the job's config.json (task, variant); jobs from before
+variants existed are t1/canonical.
 """
 
 from __future__ import annotations
@@ -22,8 +24,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# The grader is Task 1's (case0.grade_program): case0 is the only task so far.
-from tbd.eval.case0 import grade_program
+from tbd.eval import tasks
+from tbd.eval.checks import grade_program
 from tbd.eval.grading import Grade, extract_code
 from tbd.paths import ROOT
 
@@ -33,6 +35,13 @@ def grader_version() -> dict:
         return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     return {"git_sha": git("rev-parse", "HEAD"),
             "dirty": bool(git("status", "--porcelain", "--", "src", "tasks", "vendor"))}
+
+
+def job_spec(attempt_dir: Path) -> tasks.TaskSpec:
+    """The task variant of the job holding attempt_dir (job/sample-NN/attempt-N)."""
+    config = attempt_dir.parent.parent / "config.json"
+    cfg = json.loads(config.read_text()) if config.exists() else {}
+    return tasks.load(cfg.get("task", "t1"), cfg.get("variant", "canonical"))
 
 
 def regrade(attempt_dir: Path) -> dict:
@@ -52,7 +61,7 @@ def regrade(attempt_dir: Path) -> dict:
         if code is None:
             new, asm_rec = Grade(False, "no_code"), None
         else:
-            asm_rec, new = grade_program(code, out_dir)
+            asm_rec, new = grade_program(job_spec(attempt_dir), code, out_dir)
     record = {
         "attempt": str(attempt_dir.relative_to(ROOT)),
         "regraded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

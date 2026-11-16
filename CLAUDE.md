@@ -73,9 +73,11 @@ python -m pytest              # racer-check / stella-core tests skip if not buil
 - `src/tbd/tools/` — `assembler` (DASM) and `emulator` (stella-core, tests only).
 - `src/tbd/eval/grading.py` — task-agnostic: extract code, assemble, run a
   racer-check check file, categorize. `models.py` / `claude_client.py` — the
-  model clients. `case0.py` — Task 1 and the eval CLI. `regrade.py` — re-grade
+  model clients. `tasks.py` / `checks.py` — task specs and running their
+  checks. `case0.py` — the eval CLI (`--task`, `--variant`). `regrade.py` — re-grade
   saved attempts.
-- `tasks/<task>/` — a task's reference program and check files.
+- `tasks/<task>/<variant>/` — prompt, reference program, check files, optional
+  `check.py`; see docs/design/task-spec.md.
 - `vendor/` — racer-check (the grader) and DASM's headers. `stella-core/` —
   optional reference emulator (GPL).
 - `experiments/` — eval output, gitignored. Runs are never deleted or overwritten.
@@ -84,5 +86,5 @@ python -m pytest              # racer-check / stella-core tests skip if not buil
 
 - New work goes on a branch; PRs target `main`.
 - Task-specific code and data stay out of `grading.py` / `models.py`; a new
-  task adds a `tasks/<task>/` folder rather than copying `case0.py`'s grader.
+  task or variant adds a `tasks/<task>/<variant>/` folder rather than code.
 - Paths to the checkout and built tools come from `tbd.paths`.

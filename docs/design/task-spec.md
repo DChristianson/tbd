@@ -1,7 +1,8 @@
 # Task specs: adding a task or variant
 
-**Status: proposed (beads tbd-818.3). Not built yet.** Today Task 1 is
-hard-coded in `src/tbd/eval/case0.py`. This doc is the target layout and the
+**Status:** the layout, `check.py`, and the per-variant tests are built
+(beads tbd-818.3: `src/tbd/eval/tasks.py`, `checks.py`, `tests/test_tasks.py`).
+`Racer.frames()` is planned (tbd-818.19). This doc is the layout and the
 checklist for adding to it, followed by what each planned Task 1 variant
 would take.
 
@@ -143,7 +144,7 @@ variants take about 1.5 minutes. racer-check is single-threaded and the
 container has 10 cores, so `pytest -n` takes most of that away. Speed up the
 suite that way rather than trimming a variant's check files for tests.
 
-## Code changes for tbd-818.3 (once)
+## Code changes for tbd-818.3 (done)
 
 1. `tbd/eval/tasks.py`: `TaskSpec` (paths plus the imported `check.py`, if
    any), `load(task, variant)`, and `all_specs()` (finds every folder that
@@ -151,7 +152,7 @@ suite that way rather than trimming a variant's check files for tests.
 2. `tbd/eval/checks.py`: `Racer`, which takes over Task 1's `check_red` and
    `red_retry_color` as `run(..., accept=...)`. Rewriting a color in one
    property's block replaces case0's file-wide regex.
-   `grading.grade_program(spec, code, workdir)` assembles the program, calls
+   `checks.grade_program(spec, code, workdir)` assembles the program, calls
    `check` (and `relaxed` on a timing or output failure), and categorizes the
    result.
 3. `case0.py`: add `--task` and `--variant` (defaulting to `t1`/`canonical`).
@@ -168,6 +169,8 @@ suite that way rather than trimming a variant's check files for tests.
 6. `tests/test_tasks.py`: the parametrized checks above. Task 1's reference
    test in `test_racer_check.py` and the 263-line case move into
    `tasks/t1/canonical/broken/`.
+7. `README.md`, `stella-core/README.md` and the tests' fixture paths point at
+   `tasks/t1/canonical/`.
 
 The attempt record's `grade.color` becomes `grade.accepted`, a map of
 property name to the substituted value, because there can be more than one.

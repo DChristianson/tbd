@@ -1,4 +1,4 @@
-; red_background.asm - Case 0 / Task 1 reference: a stable NTSC frame with a
+; Task 1 (canonical) reference: a stable NTSC frame with a
 ; solid red background.
 ;
 ; Frame, with line 0 the line VSYNC turns on (racer's numbering):

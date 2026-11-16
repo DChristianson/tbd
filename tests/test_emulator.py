@@ -14,7 +14,7 @@ from tbd.paths import HEADERS, TASKS
 from tbd.tools.assembler import assemble
 from tbd.tools.emulator import run, _DEFAULT_BIN
 
-FIXTURE = TASKS / "t1" / "red_background.asm"
+FIXTURE = TASKS / "t1" / "canonical" / "reference.asm"
 # TIA hue 4 ("red"), confirmed against the real NTSC palette by running the
 # fixture through stella-core and reading COLUBK's shadow register back —
 # not a guess.
