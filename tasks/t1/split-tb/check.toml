@@ -1,0 +1,59 @@
+# Task 1, split-tb variant, in racer's check-file format (racer docs/checker.md):
+# a stable NTSC frame, background red on the top half of the 192-line
+# picture and blue on the bottom half. Checked per color clock, from a zeroed
+# and 100 random power-on states. Build the ROM first:
+#   cd tasks/t1/split-tb && dasm reference.asm -f3 -I../../../vendor/atari2600 -obuild/reference.bin
+# then: racer-check tasks/t1/split-tb/check.toml
+#
+# No relaxed tier yet: picture_block takes one color (docs/design/task-spec.md).
+
+rom = "build/reference.bin"
+
+[run]
+frames = 100
+skip_frames = 1
+zero = true
+random_seeds = 100
+
+[[property]]
+kind = "frame_length"
+lines = 262
+
+# Graded: sync starts on line 0 and lasts 2-4 lines' worth of clocks.
+[[property]]
+name = "vsync_span"
+kind = "signal_span"
+signal = "sync"
+first_line = 0
+min_clocks = 456
+max_clocks = 912
+
+# Informational (check.py lists it; it does not decide the grade):
+# sync from the start of line 0 for exactly 3 lines, as racer's references do.
+[[property]]
+name = "vsync"
+kind = "signal_on_lines"
+signal = "sync"
+first_line = 0
+lines = 3
+
+[[property]]
+name = "blanking"
+kind = "blank_outside"
+lines = [40, 232]
+
+# The top 96 picture lines. check.py accepts $42-$46 here.
+[[property]]
+name = "top"
+kind = "constant_output"
+lines = [40, 136]
+clocks = [68, 228]
+color = 0x42
+
+# The bottom 96 picture lines. check.py accepts $82-$86 here.
+[[property]]
+name = "bottom"
+kind = "constant_output"
+lines = [136, 232]
+clocks = [68, 228]
+color = 0x84
