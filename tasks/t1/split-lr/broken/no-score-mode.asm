@@ -1,0 +1,68 @@
+; broken/no-score-mode.asm - the reference without score mode: the whole
+; playfield is drawn in COLUPF (black). Must fail.
+;
+; Task 1 (split-lr) reference: a stable NTSC frame, red left / blue right.
+;
+; No mid-line timing: the playfield is all ones and in score mode (CTRLPF
+; bit 1), so its left half is drawn in COLUP0 and its right half in COLUP1.
+; The halves meet at exactly color clock 148 (68 + 20 playfield bits x 4).
+; Set once after CLEAN_START; VBLANK hides it outside the picture.
+;
+; Frame, with line 0 the line VSYNC turns on (racer's numbering):
+;   lines   0-2    VSYNC
+;   lines   3-39   vertical blank
+;   lines  40-231  picture, red left / blue right
+;   lines 232-261  overscan, blanked
+; 262 lines. VERTICAL_SYNC's first WSYNC ends line 261, so overscan counts 29
+; WSYNCs, not 30 (30 made 263 lines).
+
+    processor 6502
+NO_ILLEGAL_OPCODES = 1      ; CLEAN_START without lxa (see tbd-dpu.10)
+    include "vcs.h"
+    include "macro.h"
+
+    SEG CODE
+    ORG $F000
+
+Reset:
+    CLEAN_START
+
+    lda #$FF
+    sta PF0
+    sta PF1
+    sta PF2
+    lda #$42
+    sta COLUP0              ; left half
+    lda #$84
+    sta COLUP1              ; right half
+
+NewFrame:
+    VERTICAL_SYNC
+
+    ldx #37
+_vblank_loop:
+    sta WSYNC
+    dex
+    bne _vblank_loop
+    stx VBLANK
+    
+    ldx #192
+_screen_loop:
+    sta WSYNC
+    dex
+    bne _screen_loop
+
+    lda #2
+    sta VBLANK              ; line 232: blank overscan, VSYNC and vertical blank
+
+    ldx #29
+_overscan_loop:
+    sta WSYNC
+    dex
+    bne _overscan_loop
+    jmp NewFrame
+
+    org $FFFA
+    .word Reset     ; NMI    (unused on the 2600, but the vector is read)
+    .word Reset     ; RESET
+    .word Reset     ; IRQ    (unused, no maskable IRQ source is enabled)
