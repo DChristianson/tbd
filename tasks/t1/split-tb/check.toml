@@ -1,11 +1,7 @@
-# Task 1, split-tb variant, in racer's check-file format (racer docs/checker.md):
-# a stable NTSC frame, background red on the top half of the 192-line
-# picture and blue on the bottom half. Checked per color clock, from a zeroed
-# and 100 random power-on states. Build the ROM first:
+# This file checks for a stable NTSC frame, red on the top half and blue on the bottom.
+# To run it on the reference:
 #   cd tasks/t1/split-tb && dasm reference.asm -f3 -I../../../vendor/atari2600 -obuild/reference.bin
-# then: racer-check tasks/t1/split-tb/check.toml
-#
-# No relaxed tier yet: picture_block takes one color (docs/design/task-spec.md).
+#   racer-check check.toml
 
 rom = "build/reference.bin"
 
@@ -19,7 +15,7 @@ random_seeds = 100
 kind = "frame_length"
 lines = 262
 
-# Graded: sync starts on line 0 and lasts 2-4 lines' worth of clocks.
+# Graded: sync starts on line 0 and lasts 2-4 lines.
 [[property]]
 name = "vsync_span"
 kind = "signal_span"
@@ -28,8 +24,7 @@ first_line = 0
 min_clocks = 456
 max_clocks = 912
 
-# Informational (check.py lists it; it does not decide the grade):
-# sync from the start of line 0 for exactly 3 lines, as racer's references do.
+# Not graded (see check.py): sync for exactly 3 lines from the start of line 0.
 [[property]]
 name = "vsync"
 kind = "signal_on_lines"
