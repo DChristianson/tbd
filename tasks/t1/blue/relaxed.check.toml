@@ -1,9 +1,5 @@
-# Task 1, blue variant, relaxed tier. The grader runs this when the strict
-# check (check.toml) fails: passing it makes the attempt a near
-# miss. Same frame, with slack where "stable framerate" leaves room:
-#   - frame length 262 +/- 2 lines (not the NTSC standard, but stable)
-#   - the 192-line blue picture may start on lines 38-42 (strict: line 40)
-# Uses tbd's additions to racer's checker (vendor/racer/NOTICE.md).
+# This file checks the same frame with some slack, to find near misses:
+# frame length 260-264 lines, and the picture may start on lines 38-42.
 
 rom = "build/reference.bin"
 
@@ -27,7 +23,7 @@ first_line = 0
 min_clocks = 456
 max_clocks = 912
 
-# check.py accepts $82-$86 here, as in the strict tier.
+# check.py accepts $82-$86 here.
 [[property]]
 name = "picture"
 kind = "picture_block"
