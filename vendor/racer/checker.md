@@ -124,6 +124,8 @@ rows = [
 
 Registers are given by name (`"COLUBK"`, `"TIM64T"`) or by number: the address modulo 64 for the TIA, modulo 32 for the RIOT.
 
+**Frames.** `racer-check --frames file.check.toml` (added in tbd's vendored copy) checks nothing. It runs the file's power-on states for its `[run]` settings and prints one JSON object per run: `power_on`, `frame_lengths`, `error` if the simulator stopped, and `frames`, each checked frame (after `skip_frames`) as `{ "number", "lines" }`, each line a list of runs `[start, length, signal]` with `signal` `"sync"`, `"blank"`, or a color value. Properties in the file are ignored. It exits with 2 if a file could not be run.
+
 ## Reports
 
 For each file, the checker reports whether it passed and, if not, the first run whose results were unexpected, with each failing property's first failure:

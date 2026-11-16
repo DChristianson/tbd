@@ -32,11 +32,11 @@ Produces `stella-core/build/shim/stella_core` (the real binary
 standalone check — loads a ROM, prints cycle/color data, exits):
 
 ```
-stella-core/build/shim/stella_core_smoketest /path/to/red_background.bin 5
+stella-core/build/shim/stella_core_smoketest /path/to/reference.bin 5
 ```
 
-(`red_background.bin` is the assembled output of
-`tasks/t1/red_background.asm` — build it with
+(`reference.bin` is the assembled output of
+`tasks/t1/canonical/reference.asm` — build it with
 `tbd.tools.assembler.assemble(path, include_dirs=[tbd.paths.HEADERS])`.)
 
 ## Layout

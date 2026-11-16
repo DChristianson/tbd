@@ -1,14 +1,13 @@
 """Case 0 local eval: prompt -> model -> dasm -> racer-check -> attempt log.
 
-The first grid cell (docs/design/experiment-grid.md): Task 1, no facts, a
-local Ollama model, one-shot or tool-feedback. This file is Task 1 and the
-runner; the task-agnostic parts are tbd.eval.grading (extract, assemble,
-racer-check, categorize) and tbd.eval.models / claude_client (the model).
-Task 1's data is in tasks/t1/. The task spec format and a generic harness
-come with Task 2 (beads tbd-818.3, tbd-818.5).
+One grid cell (docs/design/experiment-grid.md): a task variant, no facts, a
+model, one-shot or tool-feedback. The task comes from tasks/<task>/<variant>/
+(tbd.eval.tasks, docs/design/task-spec.md); grading is tbd.eval.checks and
+tbd.eval.grading; the model is tbd.eval.models / claude_client. A generic
+harness replaces this runner in tbd-818.5.
 
     python -m tbd.eval.case0 --model llama3.1 --samples 10
-    python -m tbd.eval.case0 --model qwen3.5 --samples 10 --mode tool-feedback
+    python -m tbd.eval.case0 --model qwen3.5 --task t1 --variant canonical --mode tool-feedback
 
 Output, one folder per job and one per attempt. Runs are never deleted or
 overwritten: an existing job folder is an error; pick a new --experiment.
@@ -25,8 +24,8 @@ overwritten: an existing job folder is an error; pick a new --experiment.
             response.md        the reply text
             prog.asm           extracted program (absent if none)
             assemble.json      DASM result
-            check-0xNN.toml    check file used, per color tried
-            check-0xNN.result.json  racer-check's raw JSON
+            <check>.toml       each check file run (and any accepted-color re-run)
+            <check>.result.json  racer-check's raw JSON
             attempt.json       the attempt record
             error.txt          if the request failed
 """
@@ -35,113 +34,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tbd.eval import grading
-from tbd.eval.grading import (Grade, assemble_program, extract_code, property_names,
-                              run_racer_check, with_rom)
+from tbd.eval import tasks
+from tbd.eval.checks import grade_program
+from tbd.eval.grading import Grade, extract_code
 from tbd.eval.models import (MAX_OUTPUT_TOKENS, REQUEST_TIMEOUT_S, RequestTimeout,
                              model_digest, model_template, ollama_chat)
-from tbd.paths import RACER_CHECK, ROOT, TASKS
-
-TASK_DIR = TASKS / "t1"
-CHECK_TEMPLATE = TASK_DIR / "red_background.check.toml"
-# Relaxed tier: run when the strict check fails; passing it is a near miss.
-RELAXED_TEMPLATE = TASK_DIR / "red_background.relaxed.check.toml"
-
-TASK = "Create a kernel with stable framerate that sets the screen background to red."
-# Says which assembler and headers, so a wrong dialect isn't what's measured.
-# Says nothing about the frame layout or which color value is red.
-PROMPT = (
-    f"{TASK}\n\n"
-    "Target: Atari 2600, NTSC. Write 6502 assembly for the DASM assembler. "
-    'The standard headers are available: include "vcs.h" and include "macro.h". '
-    "Reply with the complete program in a single ```asm code block."
-)
-
-# The canonical prompt says "red", not a value: accept $42-$46 inclusive
-# (NTSC hue 4, the three luminances around the reference's $42; the TIA
-# ignores bit 0, so $43/$45 show as $42/$44). Variants (tbd-dpu.2) pin exact
-# values.
-ACCEPTED_COLORS = range(0x42, 0x47)
-DEFAULT_COLOR = 0x42
-
-# Checked and recorded, but not part of the grade: racer's strict, line-aligned
-# 3-line VSYNC. The graded VSYNC property is vsync_span (a 2-4 line range).
-INFORMATIONAL = {"vsync"}
-
-
-# ---------------------------------------------------------------- grading
-
-def categorize(report: dict, names: list[str] | None = None) -> Grade:
-    """grading.categorize with Task 1's informational properties."""
-    return grading.categorize(report, names, INFORMATIONAL)
-
-
-_SHOWN_COLOR = re.compile(r"color \$([0-9a-fA-F]{2})")
-
-
-def red_retry_color(grade: Grade, prop: str = "background") -> int | None:
-    """If `prop` failed showing another accepted red, that red. Independent of
-    whatever else failed."""
-    if prop not in grade.failed:
-        return None
-    start = grade.detail.find(f"{prop}:")
-    m = _SHOWN_COLOR.search(grade.detail[start:].split("; required")[0]) if start >= 0 else None
-    if not m:
-        return None
-    color = int(m.group(1), 16)
-    return color if color in ACCEPTED_COLORS and color != DEFAULT_COLOR else None
-
-
-def check_file(template_path: Path, color: int) -> str:
-    """A Task 1 check file asking for `color`, pointed at the attempt's ROM."""
-    template = template_path.read_text()
-    return with_rom(re.sub(r"(?m)^color = 0x[0-9a-fA-F]+$", f"color = 0x{color:02x}", template))
-
-
-def check_red(workdir: Path, template_path: Path, prefix: str, prop: str, color: int) -> Grade:
-    """Run a check file at `color`. If `prop` failed showing another accepted
-    red, run it again at that red and keep that run when `prop` then passes."""
-    names = property_names(template_path.read_text())
-
-    def run(c: int) -> Grade:
-        report = run_racer_check(workdir, check_file(template_path, c), f"{prefix}-0x{c:02x}")
-        g = categorize(report, names)
-        g.color = c
-        return g
-
-    g = run(color)
-    other = red_retry_color(g, prop)
-    if other is not None and other != color:
-        retry = run(other)
-        if prop not in retry.failed:
-            g = retry
-    return g
-
-
-def grade_program(code: str, workdir: Path) -> tuple[dict, Grade]:
-    """Assemble and check one program. Returns (assemble record, grade)."""
-    asm_rec, failed = assemble_program(code, workdir)
-    if failed:
-        return asm_rec, failed
-    grade = check_red(workdir, CHECK_TEMPLATE, "check", "background", DEFAULT_COLOR)
-    if not grade.ok and grade.color == DEFAULT_COLOR:
-        grade.color = None  # recorded only when a red was accepted
-    if grade.category in ("timing", "output_mismatch"):
-        grade.relaxed = grade_relaxed(workdir, grade.color or DEFAULT_COLOR)
-    return asm_rec, grade
-
-
-def grade_relaxed(workdir: Path, color: int) -> dict:
-    """The relaxed tier, with the same $42-$46 color handling as the strict one."""
-    g = check_red(workdir, RELAXED_TEMPLATE, "relaxed", "picture", color)
-    return {"passed": g.ok, "failed": g.failed, "properties": g.properties,
-            "color": g.color, "detail": g.detail}
+from tbd.paths import RACER_CHECK, ROOT
 
 
 # ---------------------------------------------------------------- model
@@ -168,7 +71,7 @@ def git_sha() -> str:
 
 def run_job(args, sample: int, job_dir: Path, log) -> dict:
     seed = args.seed + sample
-    messages = [{"role": "user", "content": PROMPT}]
+    messages = [{"role": "user", "content": args.spec.prompt}]
     budget = 1 if args.mode == "one-shot" else 1 + args.retries
     for attempt_no in range(1, budget + 1):
         t0 = time.time()
@@ -197,7 +100,7 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
             asm_rec, grade = {"ok": False, "errors": [], "warnings": []}, Grade(False, "no_code")
             workdir.mkdir(parents=True, exist_ok=True)
         else:
-            asm_rec, grade = grade_program(code, workdir)
+            asm_rec, grade = grade_program(args.spec, code, workdir)
         record = {
             "sample": sample, "seed": seed, "attempt_no": attempt_no,
             "prompt": messages[-1]["content"], "response": text, "thinking": thinking,
@@ -260,6 +163,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", required=True)
     p.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"), default="high",
                    help="anthropic only: thinking depth (claude-opus-5-5 defaults to medium)")
+    p.add_argument("--task", default="t1")
+    p.add_argument("--variant", default="canonical")
     p.add_argument("--samples", type=int, default=10)
     p.add_argument("--mode", choices=("one-shot", "tool-feedback"), default="one-shot")
     p.add_argument("--retries", type=int, default=3, help="tool-feedback retries after the first")
@@ -284,6 +189,11 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     args.think = {"on": True, "off": False, "default": None}[args.think]
 
+    try:
+        args.spec = tasks.load(args.task, args.variant)
+    except FileNotFoundError as e:
+        p.error(str(e))
+
     if not RACER_CHECK.exists():
         p.error(f"racer-check not found at {RACER_CHECK}; see vendor/racer/NOTICE.md")
 
@@ -303,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     exp_id = args.experiment or f"case0-{stamp}"
     exp_dir = args.out / exp_id
-    job_id = f"{args.model.replace(':', '_').replace('/', '_')}-t1-canonical-none-{args.mode}"
+    job_id = f"{args.model.replace(':', '_').replace('/', '_')}-{args.task}-{args.variant}-none-{args.mode}"
     job_dir = exp_dir / "jobs" / job_id
     if job_dir.exists():
         p.error(f"{job_dir} already exists; runs are never overwritten. Use a new --experiment.")
@@ -315,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
         "model": args.model,
         "model_digest": None if anthropic_run else model_digest(args.model),
         "runtime": "anthropic-api" if anthropic_run else "ollama",
-        "facts": "none", "fact_snapshot": None, "task": "t1", "variant": "canonical",
+        "facts": "none", "fact_snapshot": None, "task": args.task, "variant": args.variant,
         "mode": args.mode, "samples": args.samples,
         # Claude takes no temperature or seed; record that instead of a value we didn't send.
         "temperature": None if anthropic_run else args.temperature,
@@ -324,9 +234,10 @@ def main(argv: list[str] | None = None) -> int:
         "thinking": {"type": "adaptive", "display": "summarized"} if anthropic_run else args.think, "retries": args.retries if args.mode == "tool-feedback" else 0,
         "max_tokens": effective_max_tokens(args),
         "num_ctx": None if anthropic_run else (args.num_ctx or max(16384, effective_max_tokens(args) + 4096)),
-        "request_timeout_s": args.timeout, "prompt": PROMPT, "grader": "racer-check",
-        "check_template": str(CHECK_TEMPLATE.relative_to(ROOT)),
-        "accepted_colors": [f"0x{c:02x}" for c in ACCEPTED_COLORS],
+        "request_timeout_s": args.timeout, "prompt": args.spec.prompt, "grader": "racer-check",
+        "task_dir": str(args.spec.dir.relative_to(ROOT)),
+        "check_files": args.spec.check_files,
+        "check_py": args.spec.module is not None,
     }
     manifest = exp_dir / "manifest.json"
     if not manifest.exists():

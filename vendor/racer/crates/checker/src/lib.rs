@@ -5,6 +5,7 @@
 
 pub mod check;
 pub mod crosscheck;
+pub mod frames;
 pub mod state;
 
 use check::Failure;

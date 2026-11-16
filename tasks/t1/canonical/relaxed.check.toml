@@ -1,0 +1,33 @@
+# This file checks the same frame with some slack, to find near misses:
+# frame length 260-264 lines, and the picture may start on lines 38-42.
+
+rom = "build/reference.bin"
+
+[run]
+frames = 100
+skip_frames = 1
+zero = true
+random_seeds = 100
+
+[[property]]
+name = "frame_length_range"
+kind = "frame_length_range"
+min_lines = 260
+max_lines = 264
+
+[[property]]
+name = "vsync_span"
+kind = "signal_span"
+signal = "sync"
+first_line = 0
+min_clocks = 456
+max_clocks = 912
+
+# check.py accepts $42-$46 here.
+[[property]]
+name = "picture"
+kind = "picture_block"
+lines = 192
+start_window = [38, 43]
+clocks = [68, 228]
+color = 0x42

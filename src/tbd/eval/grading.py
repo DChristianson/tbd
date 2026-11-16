@@ -1,8 +1,8 @@
 """Task-agnostic grading: find the program in a reply, assemble it, run a
 racer-check check file over it, and turn racer-check's report into a Grade.
 
-What counts as passing is the task's business (its check files, and any
-tolerance such as Task 1's accepted reds); see tbd.eval.case0.
+What counts as passing is the task's business: its check files and check.py
+(tbd.eval.tasks, tbd.eval.checks).
 """
 
 from __future__ import annotations
@@ -51,13 +51,15 @@ class Grade:
     category: str
     detail: str = ""
     failed: list[str] = field(default_factory=list)
-    color: int | None = None
+    # {property: color} where an accepted color other than the check file's
+    # was substituted (checks.Racer.run's `accept`).
+    accepted: dict[str, int] = field(default_factory=dict)
     # Every property in the check file -> "pass" / "fail", once the program ran.
     properties: dict[str, str] = field(default_factory=dict)
     # Failed properties that don't count toward the grade (informational).
     informational_failed: list[str] = field(default_factory=list)
     # The relaxed tier's result, when the strict check failed after running:
-    # {"passed", "failed", "properties", "color", "detail"}.
+    # {"passed", "failed", "properties", "accepted", "detail"}.
     relaxed: dict | None = None
 
     @property
@@ -68,7 +70,7 @@ class Grade:
     def to_dict(self) -> dict:
         return {"ok": self.ok, "category": self.category, "detail": self.detail,
                 "failed": self.failed, "informational_failed": self.informational_failed,
-                "color": self.color, "properties": self.properties,
+                "accepted": self.accepted, "properties": self.properties,
                 "near_miss": self.near_miss, "relaxed": self.relaxed}
 
 

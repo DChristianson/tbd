@@ -1,5 +1,5 @@
 """Spec for Task 1's assembler contract (see docs/plan/roadmap.md):
-`tbd.tools.assembler.assemble()` turns `tasks/t1/red_background.asm` into a
+`tbd.tools.assembler.assemble()` turns `tasks/t1/canonical/reference.asm` into a
 ROM, and reports a bad source as errors rather than a ROM.
 """
 
@@ -9,7 +9,7 @@ import pytest
 from tbd.paths import HEADERS, TASKS
 from tbd.tools.assembler import assemble
 
-FIXTURE = TASKS / "t1" / "red_background.asm"
+FIXTURE = TASKS / "t1" / "canonical" / "reference.asm"
 
 pytestmark = pytest.mark.skipif(
     not FIXTURE.exists(),

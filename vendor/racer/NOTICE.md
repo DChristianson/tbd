@@ -19,8 +19,8 @@ and `examples/` (they need racer's reference ROMs and ~600 MB of CPU test
 data); the `racer-crosscheck` binary (needs the other emulators). The
 `crosscheck` module stays in the checker library, unchanged.
 
-**Modified, three changes (2026-11-15).** Upstream racer has neither yet
-(beads tbd-818.15). Otherwise unmodified.
+**Modified, four changes (2026-11-15, 2026-11-16).** Upstream racer has
+none of them yet (beads tbd-818.15, tbd-818.19). Otherwise unmodified.
 
 1. `crates/sim/src/cpu.rs` adds the undocumented `LXA #imm` (`$AB`),
    `A = X = (A | $EE) & imm` as Stella does it, because model-written
@@ -34,6 +34,11 @@ data); the `racer-crosscheck` binary (needs the other emulators). The
    `frame_length_range` (`min_lines`..`max_lines`) and `picture_block` (a
    block of `lines` lines of one color starting within `start_window`,
    blank elsewhere).
+4. `racer-check --frames` (`crates/checker/src/frames.rs`, `main.rs`, and
+   `pub mod frames` in `lib.rs`, documented in `checker.md`): runs a check
+   file's power-on states without checking anything and prints each run's
+   video as JSON, so tbd's task `check.py` files can check output in Python
+   (beads tbd-818.19). Checking is unchanged.
 
 **Checked (2026-11-15):** at commit `59edc95`, the vendored `racer-check` and
 unmodified upstream `racer-check` (racer `b54543d`) give byte-identical

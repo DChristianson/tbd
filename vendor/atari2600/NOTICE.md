@@ -14,7 +14,7 @@ from DASM's own Atari 2600 support package:
   files; they remain GPL-2.0-or-later as received.
 - **Why vendoring is fine:** GPL §1 permits verbatim copying/redistribution
   of unmodified source. These files are used only as assembler input
-  (included by `tasks/t1/red_background.asm` and by the programs the eval
+  (included by `tasks/t1/canonical/reference.asm` and by the programs the eval
   grades), not linked into any shipped artifact of this project.
 
 Do not edit these two files in place — if DASM's upstream version changes,
