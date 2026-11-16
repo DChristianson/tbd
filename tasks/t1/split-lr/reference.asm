@@ -1,17 +1,12 @@
-; Task 1 (split-lr) reference: a stable NTSC frame, red left / blue right.
+; Reference solution: red left half, blue right half.
+; Score mode (CTRLPF bit 1) draws a full playfield's left half in COLUP0
+; and its right half in COLUP1, meeting at color clock 148.
 ;
-; No mid-line timing: the playfield is all ones and in score mode (CTRLPF
-; bit 1), so its left half is drawn in COLUP0 and its right half in COLUP1.
-; The halves meet at exactly color clock 148 (68 + 20 playfield bits x 4).
-; Set once after CLEAN_START; VBLANK hides it outside the picture.
-;
-; Frame, with line 0 the line VSYNC turns on (racer's numbering):
 ;   lines   0-2    VSYNC
 ;   lines   3-39   vertical blank
 ;   lines  40-231  picture, red left / blue right
 ;   lines 232-261  overscan, blanked
-; 262 lines. VERTICAL_SYNC's first WSYNC ends line 261, so overscan counts 29
-; WSYNCs, not 30 (30 made 263 lines).
+; Overscan is 29 WSYNCs: VERTICAL_SYNC's first WSYNC ends line 261.
 
     processor 6502
 NO_ILLEGAL_OPCODES = 1      ; CLEAN_START without lxa (see tbd-dpu.10)

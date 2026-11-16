@@ -1,17 +1,4 @@
-; broken/top-bottom.asm - the split-tb reference (red top, blue bottom).
-; Must fail.
-;
-; Task 1 (split-tb) reference: a stable NTSC frame, background red on the
-; top half of the picture and blue on the bottom half.
-;
-; Frame, with line 0 the line VSYNC turns on (racer's numbering):
-;   lines   0-2    VSYNC
-;   lines   3-39   vertical blank
-;   lines  40-135  picture, red
-;   lines 136-231  picture, blue (COLUBK rewritten in line 136's blank)
-;   lines 232-261  overscan, blanked
-; 262 lines. VERTICAL_SYNC's first WSYNC ends line 261, so overscan counts 29
-; WSYNCs, not 30 (30 made 263 lines).
+; Broken: red top, blue bottom (the split-tb reference). Must fail the check.
 
     processor 6502
 NO_ILLEGAL_OPCODES = 1      ; CLEAN_START without lxa (see tbd-dpu.10)

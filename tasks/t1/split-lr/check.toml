@@ -1,11 +1,7 @@
-# Task 1, split-lr variant, in racer's check-file format (racer docs/checker.md):
-# a stable NTSC frame, background red on the left half of every picture line
-# and blue on the right half. Checked per color clock, from a zeroed
-# and 100 random power-on states. Build the ROM first:
+# This file checks for a stable NTSC frame, red on the left half and blue on the right.
+# To run it on the reference:
 #   cd tasks/t1/split-lr && dasm reference.asm -f3 -I../../../vendor/atari2600 -obuild/reference.bin
-# then: racer-check tasks/t1/split-lr/check.toml
-#
-# No relaxed tier yet: picture_block takes one color (docs/design/task-spec.md).
+#   racer-check check.toml
 
 rom = "build/reference.bin"
 
@@ -19,7 +15,7 @@ random_seeds = 100
 kind = "frame_length"
 lines = 262
 
-# Graded: sync starts on line 0 and lasts 2-4 lines' worth of clocks.
+# Graded: sync starts on line 0 and lasts 2-4 lines.
 [[property]]
 name = "vsync_span"
 kind = "signal_span"
@@ -28,8 +24,7 @@ first_line = 0
 min_clocks = 456
 max_clocks = 912
 
-# Informational (check.py lists it; it does not decide the grade):
-# sync from the start of line 0 for exactly 3 lines, as racer's references do.
+# Not graded (see check.py): sync for exactly 3 lines from the start of line 0.
 [[property]]
 name = "vsync"
 kind = "signal_on_lines"
@@ -42,9 +37,7 @@ name = "blanking"
 kind = "blank_outside"
 lines = [40, 232]
 
-# The left half: visible clocks 68-147 (playfield bits 0-19). The boundary
-# is exact: score-mode playfield switches at clock 148. check.py accepts
-# $42-$46 here.
+# The left half, clocks 68-147. check.py accepts $42-$46 here.
 [[property]]
 name = "left"
 kind = "constant_output"
@@ -52,7 +45,7 @@ lines = [40, 232]
 clocks = [68, 148]
 color = 0x42
 
-# The right half: visible clocks 148-227. check.py accepts $82-$86 here.
+# The right half, clocks 148-227. check.py accepts $82-$86 here.
 [[property]]
 name = "right"
 kind = "constant_output"
