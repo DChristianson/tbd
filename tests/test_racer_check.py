@@ -162,3 +162,58 @@ def test_picture_block_rejects_start_outside_window(tmp_path):
     assert _failed(report) == ["picture_block"]
     f = report["unexpected"][0]["failures"][0]
     assert f["line"] == 39
+
+
+# ---------------------------------------------------------------- --frames
+
+def _color_at(line, clock):
+    for start, length, signal in line:
+        if start <= clock < start + length:
+            return signal
+    return None
+
+
+def test_frames_export_agrees_with_the_check_file(tmp_path):
+    """racer-check --frames (tbd's addition) gives the same picture the check
+    file checks: 262-line frames, lines 40-231 red on every visible clock,
+    nothing shown elsewhere."""
+    from tbd.eval.checks import Racer
+    _rom(tmp_path, REFERENCE.read_text())
+    runs = Racer(tmp_path, tmp_path).frames(frames=10, seeds=2)
+    assert [r["power_on"] for r in runs] == ["zero", "random seed 1", "random seed 2"]
+    assert (tmp_path / "frames.jsonl.gz").exists()
+    for run in runs:
+        assert "error" not in run
+        assert run["frame_lengths"] == [262] * 10
+        assert [f["number"] for f in run["frames"]] == list(range(2, 11))
+        for f in run["frames"]:
+            for n, line in enumerate(f["lines"]):
+                shown = {_color_at(line, c) for c in range(68, 228)}
+                if 40 <= n < 232:
+                    assert shown == {0x42}, (f["number"], n, shown)
+                else:
+                    assert not any(isinstance(s, int) for s in shown), (f["number"], n, shown)
+                assert sum(length for _, length, _ in line) == 228
+
+
+def test_frames_export_reports_a_stopped_simulator(tmp_path):
+    from tbd.eval.checks import Racer
+    source = REFERENCE.read_text().replace("NO_ILLEGAL_OPCODES = 1", "").replace(
+        "    CLEAN_START\n", "    CLEAN_START\n    .byte $02\n", 1)  # KIL/JAM
+    _rom(tmp_path, source)
+    runs = Racer(tmp_path, tmp_path).frames(frames=3, seeds=0)
+    assert len(runs) == 1 and "error" in runs[0]
+
+
+def test_python_check_reports_categorize_like_racer_reports():
+    from tbd.eval.checks import failure, merge, report
+    from tbd.eval.grading import categorize
+    timing = {"passed": True, "runs": 3, "unexpected": [], "properties": ["frame_length"],
+              "accepted": {}}
+    color = report({"zero": [failure("steps", 5, "color $44", "color $46", line=40, clock=68)],
+                    "random seed 1": []}, ["steps"])
+    merged = merge(timing, color)
+    g = categorize(merged, merged["properties"])
+    assert not g.ok and g.category == "output_mismatch" and g.failed == ["steps"]
+    assert g.properties == {"frame_length": "pass", "steps": "fail"}
+    assert "frame 5, line 40, clock 68: color $44" in g.detail

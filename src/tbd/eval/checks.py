@@ -8,12 +8,16 @@ racer-check's `--json` shape, so `grade_program` categorizes them alike.
 
 from __future__ import annotations
 
+import gzip
+import json
 import re
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tbd.eval.grading import (Grade, assemble_program, categorize, parse_failures,
                               property_names, run_racer_check, with_rom)
+from tbd.paths import RACER_CHECK
 
 if TYPE_CHECKING:
     from tbd.eval.tasks import TaskSpec
@@ -119,6 +123,74 @@ class Racer:
                 retry["accepted"] = subs
                 report = retry
         return report
+
+
+    def frames(self, frames: int = 100, seeds: int = 2, skip_frames: int = 1) -> list[dict]:
+        """The attempt's output, simulated as a check file would run it: the
+        zero power-on state and random `seeds`, each a dict with `power_on`,
+        `frame_lengths`, `frames` (after `skip_frames`: `{number, lines}`,
+        each line runs `[start, length, signal]`, signal "sync", "blank" or
+        a color) and `error` if the simulator stopped. Saved, gzipped, as
+        frames.jsonl.gz (racer-check --frames, tbd's addition)."""
+        name = self._save_name("frames")
+        toml = with_rom(f'rom = ""\n[run]\nframes = {frames}\nskip_frames = {skip_frames}\n'
+                        f'zero = true\nrandom_seeds = {seeds}\n')
+        (self.workdir / f"{name}.toml").write_text(toml)
+        proc = subprocess.run([str(RACER_CHECK), "--frames", f"{name}.toml"], cwd=self.workdir,
+                              capture_output=True, text=True, timeout=300)
+        with gzip.open(self.workdir / f"{name}.jsonl.gz", "wt") as f:
+            f.write(proc.stdout)
+        runs = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
+        if proc.returncode != 0 or not runs:
+            raise RuntimeError(f"racer-check --frames failed: {(proc.stderr or proc.stdout)[:500]}")
+        return runs
+
+
+def failure(prop: str, frame: int | None, observed: str, required: str,
+            line: int | None = None, clock: int | None = None) -> dict:
+    """One failure, in racer-check's --json shape."""
+    f = {"property": prop, "observed": observed, "required": required}
+    for k, v in (("frame", frame), ("line", line), ("clock", clock)):
+        if v is not None:
+            f[k] = v
+    return f
+
+
+def report(runs: dict[str, list[dict]], properties: list[str],
+           errors: dict[str, str] | None = None) -> dict:
+    """A report in racer-check's --json shape from Python checks: `runs` maps
+    each power-on label to its failures (first failure per property)."""
+    errors = errors or {}
+    unexpected = []
+    for label, failures in runs.items():
+        if failures or label in errors:
+            r = {"power_on": label, "failures": failures}
+            if label in errors:
+                r["error"] = errors[label]
+            unexpected.append(r)
+    return {"passed": not unexpected, "runs": len(runs), "unexpected": unexpected,
+            "properties": list(properties), "accepted": {}}
+
+
+def merge(*reports: dict) -> dict:
+    """Several reports over the same program as one: passed if all passed,
+    unexpected runs joined by power-on label, properties and accepted
+    colors combined."""
+    out = {"passed": all(r.get("passed") for r in reports), "runs": max(r.get("runs", 0) for r in reports),
+           "unexpected": [], "properties": [], "accepted": {}}
+    by_label: dict[str, dict] = {}
+    for r in reports:
+        if r.get("error"):
+            out.setdefault("error", r["error"])
+        for run in r.get("unexpected", []):
+            dst = by_label.setdefault(run["power_on"], {"power_on": run["power_on"], "failures": []})
+            dst["failures"] += run.get("failures", [])
+            if run.get("error"):
+                dst.setdefault("error", run["error"])
+        out["properties"] += [p for p in r.get("properties", []) if p not in out["properties"]]
+        out["accepted"].update(r.get("accepted", {}))
+    out["unexpected"] = list(by_label.values())
+    return out
 
 
 def _summary(grade: Grade) -> dict:

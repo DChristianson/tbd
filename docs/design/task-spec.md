@@ -1,10 +1,10 @@
 # Task specs: adding a task or variant
 
-**Status:** the layout, `check.py`, and the per-variant tests are built
-(beads tbd-818.3: `src/tbd/eval/tasks.py`, `checks.py`, `tests/test_tasks.py`).
-`Racer.frames()` is planned (tbd-818.19). This doc is the layout and the
-checklist for adding to it, followed by what each planned Task 1 variant
-would take.
+**Status:** built. The layout, `check.py` and the per-variant tests are
+tbd-818.3 (`src/tbd/eval/tasks.py`, `checks.py`, `tests/test_tasks.py`);
+`Racer.frames()` is tbd-818.19 (racer-check `--frames`). This doc is the
+layout and the checklist for adding to it, followed by what each Task 1
+variant takes.
 
 Goal: adding a task or variant should be a folder of files and nothing else.
 Each variant has its own copy of its prompt and its own check files, even when
@@ -78,8 +78,9 @@ def relaxed(racer: Racer) -> dict:   # optional: the near-miss tier
     substitution applied together. This is Task 1's current $42–$46 retry,
     keyed by property name, so a variant with two colored regions gets one
     re-run, not one per combination.
-  - `frames(...)` (planned, for (d)) returns the simulated output itself,
-    for checks written in Python. See (d) below.
+  - `frames(frames=100, seeds=2)` returns the simulated output itself, for
+    checks written in Python. `checks.failure`, `checks.report` and
+    `checks.merge` build and combine reports in racer's shape. See (d) below.
 - Optional `INFORMATIONAL` lists property names that are recorded but not
   graded.
 
