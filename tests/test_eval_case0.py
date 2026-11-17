@@ -1,5 +1,12 @@
 """Case 0 eval script: code extraction and Task 1's grading (no model needed)."""
 
+import json
+import os
+import signal
+import socket
+import time
+from datetime import datetime
+
 import pytest
 
 from tbd.eval import case0, tasks
@@ -254,3 +261,62 @@ def test_other_replies_are_echoed_whole():
     assert case0.echoed_reply({}, text, Grade(False, "assemble_error")) == text
     blocks = [{"type": "text", "text": "hi"}]
     assert case0.echoed_reply({"assistant_content": blocks}, "hi", Grade(False, "no_code")) is blocks
+
+
+# ---------------------------------------------------------------- job lifecycle
+
+def _lifecycle(tmp_path, monkeypatch, run_job):
+    """case0.main's argv and job folder, with the model, grader and run_job stubbed."""
+    monkeypatch.setattr(case0, "RACER_CHECK", tmp_path)          # exists
+    monkeypatch.setattr(case0, "model_digest", lambda m: "d" * 64)
+    monkeypatch.setattr(case0, "model_template", lambda m: "")
+    monkeypatch.setattr(case0, "run_job", run_job)
+    argv = ["--model", "stub", "--samples", "2", "--out", str(tmp_path / "x"),
+            "--experiment", "e", "--timeout", "30"]
+    return argv, tmp_path / "x" / "e" / "jobs" / "stub-t1-canonical-none-one-shot"
+
+
+def _metrics(job_dir):
+    return json.loads((job_dir / "metrics.json").read_text())
+
+
+def test_sigterm_ends_the_job_as_interrupted(tmp_path, monkeypatch):
+    before = signal.getsignal(signal.SIGTERM)
+
+    def run_job(args, sample, job_dir, log, on_attempt=None):
+        os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(5)   # the handler raises before this returns
+        raise AssertionError("SIGTERM should have ended the job")
+
+    argv, job_dir = _lifecycle(tmp_path, monkeypatch, run_job)
+    with pytest.raises(case0.Terminated):
+        case0.main(argv)
+    m = _metrics(job_dir)
+    assert m["status"] == "interrupted" and m["samples_done"] == 0
+    assert signal.getsignal(signal.SIGTERM) is before   # handler restored
+
+
+def test_metrics_heartbeat_after_every_attempt(tmp_path, monkeypatch):
+    seen = []
+
+    def run_job(args, sample, job_dir, log, on_attempt=None):
+        for _ in range(2):
+            time.sleep(0.1)
+            on_attempt()
+            seen.append(_metrics(job_dir))
+        return {"passed": True, "attempts": 2, "first_category": "timing", "near_miss": False}
+
+    argv, job_dir = _lifecycle(tmp_path, monkeypatch, run_job)
+    assert case0.main(argv) == 0
+    assert len(seen) == 4
+    for m in seen:
+        assert m["status"] == "running"
+        assert m["pid"] == os.getpid() and m["host"] == socket.gethostname()
+        assert datetime.fromisoformat(m["updated_at"]).utcoffset().total_seconds() == 0
+    # written within a sample, before its result is in, and the clock moves
+    assert seen[0]["samples_done"] == seen[1]["samples_done"] == 0
+    assert seen[1]["wall_s"] > seen[0]["wall_s"]
+    final = _metrics(job_dir)
+    assert final["status"] == "completed" and final["samples_done"] == 2
+    assert final["passed"] == 2 and final["attempts_total"] == 4
+    assert {"pid", "host", "updated_at"} <= final.keys()

@@ -23,7 +23,10 @@ Per cell:
                   tell it apart from the same model's other rows
 
 Flagged (marked † in the grid): a job whose metrics status isn't "completed",
-or that has no attempts or unreadable lines.
+or that has no attempts or unreadable lines. A "running" job is also called
+stale when nothing will update it again (stale_reason): its heartbeat
+(metrics updated_at, rewritten after every attempt) is older than the request
+timeout plus a margin, its pid is gone on this host, or it predates heartbeats.
 
 Aggregation is pure functions over plain dicts (summarize_samples,
 aggregate_cell, build_cells, grid_tables, detail_table); load_job does the
@@ -35,8 +38,11 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
+import socket
 import sys
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 FACT_CONDITIONS = ("none", "contributed", "discovered", "both")
@@ -44,6 +50,10 @@ SETTING_KEYS = ("digest", "fact_snapshot", "num_ctx", "max_tokens", "temperature
                 "effort", "think")
 DIGEST_CHARS = 12
 FLAG = "\u2020"  # dagger
+# A running job rewrites metrics.json after every attempt, and one attempt is at most
+# a request (request_timeout_s) plus grading. Older configs have no timeout recorded.
+DEFAULT_REQUEST_TIMEOUT_S = 600
+HEARTBEAT_MARGIN_S = 300
 
 
 # ---------------------------------------------------------------- reading
@@ -152,12 +162,68 @@ def summarize_samples(attempts: list[dict]) -> list[dict]:
     return out
 
 
-def job_flags(job: dict) -> list[str]:
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except PermissionError:   # exists, owned by someone else
+        return True
+    except (OSError, OverflowError, ValueError, TypeError):
+        return False
+    return True
+
+
+def _age(seconds: float) -> str:
+    s = int(seconds)
+    if s >= 3600:
+        return f"{s // 3600}h{s % 3600 // 60:02d}m"
+    return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
+
+
+def stale_reason(metrics: dict, config: dict, now: datetime, host: str | None = None,
+                 alive=None) -> str | None:
+    """Why a "running" job can't still be running, or None if it may be.
+
+    Pure apart from alive(pid), which is asked only about a pid recorded on
+    `host` (this machine); without host and alive the pid isn't checked.
+    A job whose status isn't "running" is never stale."""
+    if metrics.get("status") != "running":
+        return None
+    updated, pid = metrics.get("updated_at"), metrics.get("pid")
+    if not updated and pid is None:
+        return "no heartbeat"
+    if updated:
+        try:
+            then = datetime.fromisoformat(updated)
+        except (TypeError, ValueError):
+            return f"unreadable heartbeat {updated!r}"
+        if then.tzinfo is None:
+            then = then.replace(tzinfo=timezone.utc)
+        age = (now - then).total_seconds()
+        limit = (config.get("request_timeout_s") or DEFAULT_REQUEST_TIMEOUT_S) + HEARTBEAT_MARGIN_S
+        if age > limit:
+            return f"last heartbeat {_age(age)} ago"
+    if (pid is not None and alive is not None and host is not None
+            and metrics.get("host") == host and not alive(pid)):
+        return f"pid {pid} gone"
+    return None
+
+
+def job_flags(job: dict, now: datetime | None = None, host: str | None = None,
+              alive=pid_alive) -> list[str]:
+    """Problems with one job; now and host default to the current time and machine."""
     name = f"{job['experiment']}/{job['job']}"
     flags = []
     status = job["metrics"].get("status")
     if status != "completed":
-        flags.append(f"{name}: status {status or 'unknown'}")
+        stale = stale_reason(job["metrics"], job["config"],
+                             now or datetime.now(timezone.utc),
+                             host or socket.gethostname(), alive)
+        if stale == "no heartbeat":
+            flags.append(f"{name}: status running (no heartbeat; stale)")
+        elif stale:
+            flags.append(f"{name}: status running (stale: {stale})")
+        else:
+            flags.append(f"{name}: status {status or 'unknown'}")
     if not job["attempts"]:
         flags.append(f"{name}: no attempts")
     if job["bad_lines"]:
