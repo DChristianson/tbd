@@ -11,18 +11,22 @@ harness replaces this runner in tbd-818.5.
 
 Output, one folder per job and one per attempt. Runs are never deleted or
 overwritten: an existing job folder is an error; pick a new --experiment.
+The contract in full: docs/design/execution.md, "Execution contract".
 
-    experiments/{experiment_id}/manifest.json
+    experiments/{experiment_id}/manifest.json   git SHA, toolchain (image digest, DASM, racer-check)
     experiments/{experiment_id}/jobs/{job_id}/
         config.json            the cell: model, digest, options, prompt, grader
         model_template.txt     the chat template Ollama wraps messages in
         metrics.json           status (running / completed / interrupted / failed) + results;
                                pid, host and updated_at, rewritten after every attempt
         attempts.jsonl         one line per attempt (same as each attempt.json)
+        console.log            everything the job printed (stdout and stderr together)
         sample-NN/attempt-N/
             request.json       exact body sent to Ollama
             response.json      Ollama's raw reply (content, thinking, timings, done_reason)
             response.md        the reply text
+            thinking.md        the model's thinking, if any
+            stream.jsonl       streamed chunks as received
             prog.asm           extracted program (absent if none)
             assemble.json      DASM result
             <check>.toml       each check file run (and any accepted-color re-run)
@@ -47,6 +51,7 @@ from pathlib import Path
 from tbd.eval import tasks
 from tbd.eval.checks import grade_program
 from tbd.eval.grading import Grade, extract_code
+from tbd.eval.jobrecords import console_log, toolchain
 from tbd.eval.models import (MAX_OUTPUT_TOKENS, REQUEST_TIMEOUT_S, RequestTimeout,
                              model_digest, model_template, ollama_chat)
 from tbd.paths import RACER_CHECK, ROOT
@@ -268,11 +273,17 @@ def main(argv: list[str] | None = None) -> int:
     manifest = exp_dir / "manifest.json"
     if not manifest.exists():
         manifest.write_text(json.dumps({"experiment_id": exp_id, "created": stamp,
-                                        "git_sha": git_sha()}, indent=2))
+                                        "git_sha": git_sha(), "toolchain": toolchain()},
+                                       indent=2))
     (job_dir / "config.json").write_text(json.dumps(config, indent=2))
     if not anthropic_run:
         (job_dir / "model_template.txt").write_text(model_template(args.model))
+    with console_log(job_dir):
+        return run_cell(args, exp_id, job_id, job_dir)
 
+
+def run_cell(args, exp_id: str, job_id: str, job_dir: Path) -> int:
+    """Run the job's samples, keeping metrics.json current."""
     print(f"{exp_id}/{job_id}: {args.samples} samples -> {job_dir}", flush=True)
     t0 = time.time()
     results: list[dict] = []
