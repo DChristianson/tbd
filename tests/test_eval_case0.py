@@ -320,3 +320,23 @@ def test_metrics_heartbeat_after_every_attempt(tmp_path, monkeypatch):
     assert final["status"] == "completed" and final["samples_done"] == 2
     assert final["passed"] == 2 and final["attempts_total"] == 4
     assert {"pid", "host", "updated_at"} <= final.keys()
+
+
+def test_every_job_config_records_its_toolchain(tmp_path, monkeypatch):
+    """The manifest keeps the first job's toolchain; each config.json keeps its own."""
+    def run_job(args, sample, job_dir, log, on_attempt=None):
+        return {"passed": True, "attempts": 1, "first_category": "pass", "near_miss": False}
+
+    argv, job_dir = _lifecycle(tmp_path, monkeypatch, run_job)
+    tc1 = {"image_digest": None, "dasm": "2.20.14.1",
+           "racer_check": {"path": "/a/racer-check", "sha256": "1" * 64}}
+    monkeypatch.setattr(case0, "toolchain", lambda: tc1)
+    assert case0.main(argv) == 0
+    tc2 = dict(tc1, racer_check={"path": "/a/racer-check", "sha256": "2" * 64})
+    monkeypatch.setattr(case0, "toolchain", lambda: tc2)
+    assert case0.main(argv + ["--mode", "tool-feedback"]) == 0
+    exp = job_dir.parent.parent
+    assert json.loads((exp / "manifest.json").read_text())["toolchain"] == tc1
+    assert json.loads((job_dir / "config.json").read_text())["toolchain"] == tc1
+    second = exp / "jobs" / "stub-t1-canonical-none-tool-feedback" / "config.json"
+    assert json.loads(second.read_text())["toolchain"] == tc2

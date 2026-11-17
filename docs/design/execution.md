@@ -71,7 +71,8 @@ API), `runtime`, `facts`, `fact_snapshot`, `task`, `variant`, `mode`,
 `samples`, `temperature` and `seed` (null where the provider takes none),
 `effort`, `thinking`, `retries` (0 for one-shot), `max_tokens`, `num_ctx`,
 `request_timeout_s`, `prompt`, `grader`, `task_dir`, `check_files`,
-`check_py`.
+`check_py`, `toolchain` (the job's own: `dasm`, `racer_check` {`path`,
+`sha256`}, `image_digest`; see Toolchain below).
 
 **metrics.json**, rewritten after every sample: `status` (`running`,
 `completed`, `interrupted` on Ctrl-C, `failed` with `error` on a crash),
@@ -85,7 +86,11 @@ hashes the binary that graded (the vendored source is pinned by `git_sha`);
 container sets, since an image can't know its own digest at build time. The
 dev container doesn't set it, so it's null there. Anything that can't be
 determined is null, never a guess. The manifest records the toolchain of the
-experiment's first job.
+experiment's first job; each job's config.json records its own, so a later job
+graded by a different build is visible. The report treats the toolchain as a
+setting: jobs differing in DASM version, racer-check sha256 (first 12 hex; the
+path is ignored, since Mac and container differ) or image digest are separate
+cells. Configs from before this read as "-".
 
 Discovery runs are **not** independent jobs: each probe changes the fact
 store. They run as one sequential job that outputs a new fact-store snapshot.
