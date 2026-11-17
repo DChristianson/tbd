@@ -5,7 +5,7 @@ import pytest
 from tbd.eval import case0, tasks
 from tbd.eval.checks import accepted_substitutions
 from tbd.eval.checks import grade_program as _grade_program
-from tbd.eval.grading import extract_code, property_names
+from tbd.eval.grading import Grade, extract_code, property_names
 from tbd.eval.grading import categorize as _categorize
 from tbd.paths import RACER_CHECK
 
@@ -228,3 +228,29 @@ def test_shifted_frame_in_the_wrong_color_is_not(tmp_path):
 def test_a_pass_runs_no_relaxed_tier(tmp_path):
     _, g = grade_program(_ref(), tmp_path)
     assert g.ok and g.relaxed is None and not g.near_miss
+
+
+def test_truncated_feedback_does_not_claim_it_assembled():
+    msg = case0.feedback({"ok": False, "errors": [], "warnings": []}, Grade(False, "truncated"))
+    assert "length limit" in msg
+    assert "assembled" not in msg
+
+
+def test_refusal_feedback_does_not_claim_it_assembled():
+    msg = case0.feedback({"ok": False, "errors": [], "warnings": []}, Grade(False, "refusal"))
+    assert "assembled" not in msg
+
+
+def test_truncated_reply_is_cut_before_it_is_echoed():
+    loop = "```asm\n" + "    sta WSYNC  ; Wait for horizontal blank\n" * 2000
+    echoed = case0.echoed_reply({}, loop, Grade(False, "truncated"))
+    assert len(echoed) < case0.TRUNCATED_ECHO_CHARS + 100
+    assert echoed.startswith(loop[:100])
+    assert echoed.endswith("cut off at the output length limit]")
+
+
+def test_other_replies_are_echoed_whole():
+    text = "x" * (case0.TRUNCATED_ECHO_CHARS * 2)
+    assert case0.echoed_reply({}, text, Grade(False, "assemble_error")) == text
+    blocks = [{"type": "text", "text": "hi"}]
+    assert case0.echoed_reply({"assistant_content": blocks}, "hi", Grade(False, "no_code")) is blocks
