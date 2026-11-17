@@ -1,13 +1,17 @@
 """Case 0 local eval: prompt -> model -> dasm -> racer-check -> attempt log.
 
-One grid cell (docs/design/experiment-grid.md): a task variant, no facts, a
-model, one-shot or tool-feedback. The task comes from tasks/<task>/<variant>/
-(tbd.eval.tasks, docs/design/task-spec.md); grading is tbd.eval.checks and
-tbd.eval.grading; the model is tbd.eval.models / claude_client. A generic
-harness replaces this runner in tbd-818.5.
+One grid cell (docs/design/experiment-grid.md): a task variant, a fact
+condition, a model, one-shot or tool-feedback. The task comes from
+tasks/<task>/<variant>/ (tbd.eval.tasks, docs/design/task-spec.md); grading is
+tbd.eval.checks and tbd.eval.grading; the model is tbd.eval.models /
+claude_client. Facts (tbd.eval.facts, facts/README.md) go in the first user
+message as a "Reference notes" block before the task prompt; --facts none
+(the default) sends the prompt unchanged. A generic harness replaces this
+runner in tbd-818.5.
 
     python -m tbd.eval.case0 --model llama3.1 --samples 10
     python -m tbd.eval.case0 --model qwen3.5 --task t1 --variant canonical --mode tool-feedback
+    python -m tbd.eval.case0 --model qwen3.5 --facts contributed
 
 Output, one folder per job and one per attempt. Runs are never deleted or
 overwritten: an existing job folder is an error; pick a new --experiment.
@@ -39,7 +43,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tbd.eval import tasks
+from tbd.eval import facts, tasks
 from tbd.eval.checks import grade_program
 from tbd.eval.grading import Grade, extract_code
 from tbd.eval.models import (MAX_OUTPUT_TOKENS, REQUEST_TIMEOUT_S, RequestTimeout,
@@ -89,7 +93,7 @@ def git_sha() -> str:
 
 def run_job(args, sample: int, job_dir: Path, log) -> dict:
     seed = args.seed + sample
-    messages = [{"role": "user", "content": args.spec.prompt}]
+    messages = [{"role": "user", "content": first_message(args)}]
     budget = 1 if args.mode == "one-shot" else 1 + args.retries
     for attempt_no in range(1, budget + 1):
         t0 = time.time()
@@ -123,7 +127,7 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
             "sample": sample, "seed": seed, "attempt_no": attempt_no,
             "prompt": messages[-1]["content"], "response": text, "thinking": thinking,
             "done_reason": resp.get("done_reason"), "code": code,
-            "fact_ids_in_context": [], "assemble": asm_rec, "grade": grade.to_dict(),
+            "fact_ids_in_context": list(args.fact_ids), "assemble": asm_rec, "grade": grade.to_dict(),
             "tokens": {"prompt": resp.get("prompt_eval_count"), "output": resp.get("eval_count"),
                        "chunks_received": resp.get("chunks"),
                        "tokens_per_s": round(resp["eval_count"] / (resp["eval_duration"] / 1e9), 1)
@@ -151,6 +155,12 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
                      {"role": "user", "content": feedback(asm_rec, grade)}]
     return {"passed": False, "attempts": budget, "first_category": first,
             "near_miss": first_near}
+
+
+def first_message(args) -> str:
+    """The task prompt, after the condition's Reference notes (none: the prompt as is).
+    Retries add tool feedback only; the notes stay in the first message."""
+    return facts.with_facts(args.spec.prompt, args.selected_facts)
 
 
 def chat(args, messages: list[dict], seed: int, workdir: Path) -> dict:
@@ -184,6 +194,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--task", default="t1")
     p.add_argument("--variant", default="canonical")
     p.add_argument("--samples", type=int, default=10)
+    p.add_argument("--facts", choices=tuple(facts.CONDITIONS), default="none",
+                   help="fact condition: which facts/ entries go in the first message")
     p.add_argument("--mode", choices=("one-shot", "tool-feedback"), default="one-shot")
     p.add_argument("--retries", type=int, default=3, help="tool-feedback retries after the first")
     p.add_argument("--temperature", type=float, default=0.7)
@@ -212,6 +224,14 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as e:
         p.error(str(e))
 
+    try:
+        args.selected_facts = facts.select(facts.load(), args.facts)
+    except facts.FactError as e:
+        p.error(f"fact store: {e}")
+    if args.facts != "none" and not args.selected_facts:
+        p.error(f"--facts {args.facts}: the fact store has no facts for that condition")
+    args.fact_ids = [f.fact_id for f in args.selected_facts]
+
     if not RACER_CHECK.exists():
         p.error(f"racer-check not found at {RACER_CHECK}; see vendor/racer/NOTICE.md")
 
@@ -231,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     exp_id = args.experiment or f"case0-{stamp}"
     exp_dir = args.out / exp_id
-    job_id = f"{args.model.replace(':', '_').replace('/', '_')}-{args.task}-{args.variant}-none-{args.mode}"
+    job_id = f"{args.model.replace(':', '_').replace('/', '_')}-{args.task}-{args.variant}-{args.facts}-{args.mode}"
     job_dir = exp_dir / "jobs" / job_id
     if job_dir.exists():
         p.error(f"{job_dir} already exists; runs are never overwritten. Use a new --experiment.")
@@ -243,7 +263,8 @@ def main(argv: list[str] | None = None) -> int:
         "model": args.model,
         "model_digest": None if anthropic_run else model_digest(args.model),
         "runtime": "anthropic-api" if anthropic_run else "ollama",
-        "facts": "none", "fact_snapshot": None, "task": args.task, "variant": args.variant,
+        "facts": args.facts, "fact_snapshot": facts.snapshot(args.selected_facts),
+        "fact_ids": args.fact_ids, "task": args.task, "variant": args.variant,
         "mode": args.mode, "samples": args.samples,
         # Claude takes no temperature or seed; record that instead of a value we didn't send.
         "temperature": None if anthropic_run else args.temperature,
