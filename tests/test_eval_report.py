@@ -129,6 +129,40 @@ def test_repulled_model_is_a_separate_cell(tmp_path):
     assert "digest" in report.detail_table(cells)["headers"]
 
 
+def _toolchain(sha, path="/workspace/vendor/racer-check/racer-check"):
+    return {"image_digest": None, "dasm": "2.20.14.1",
+            "racer_check": {"path": path, "sha256": sha}}
+
+
+def test_different_racer_check_builds_are_separate_cells(tmp_path):
+    write_job(tmp_path / "e1", "m1", _config(toolchain=_toolchain("a" * 64)), ONE_SHOT)
+    write_job(tmp_path / "e2", "m1", _config(toolchain=_toolchain("b" * 64)), ONE_SHOT)
+    cells = report.build_cells([report.load_job(j)
+                                for j in report.find_jobs([tmp_path / "e1", tmp_path / "e2"])])
+    assert [c["settings"]["racer_check"] for c in cells] == ["a" * 12, "b" * 12]
+    assert all(c["settings"]["dasm"] == "2.20.14.1" for c in cells)
+    [grid] = report.grid_tables(cells)
+    assert [r[0] for r in grid["rows"]] == [f"m1 (racer_check={'a' * 12})",
+                                            f"m1 (racer_check={'b' * 12})"]
+    assert "racer_check" in report.detail_table(cells)["headers"]
+
+
+def test_same_racer_check_at_another_path_merges(tmp_path):
+    """Mac and container put the same binary at different paths."""
+    write_job(tmp_path / "e1", "m1", _config(toolchain=_toolchain("a" * 64)), ONE_SHOT)
+    write_job(tmp_path / "e2", "m1", _config(toolchain=_toolchain("a" * 64, "/Users/x/rc")),
+              ONE_SHOT)
+    [cell] = report.build_cells([report.load_job(j)
+                                 for j in report.find_jobs([tmp_path / "e1", tmp_path / "e2"])])
+    assert cell["samples"] == 6
+
+
+def test_image_digest_is_shortened_without_its_prefix():
+    tc = dict(_toolchain(None), image_digest="sha256:" + "c" * 64)
+    s = report.job_settings({"toolchain": tc})
+    assert (s["image"], s["racer_check"]) == ("c" * 12, "-")
+
+
 def test_incomplete_job_reported_and_flagged(tmp_path):
     job = write_job(tmp_path / "e1", "run", _config(), ONE_SHOT[:1], status="running")
     with open(job / "attempts.jsonl", "a") as f:
@@ -155,6 +189,7 @@ def test_old_config_missing_keys(tmp_path):
     assert cell["budget"] == 2   # no retries recorded: the most attempts seen
     assert cell["near_misses"] == 0 and cell["output_tokens"] == 0
     assert cell["settings"]["num_ctx"] == "-"
+    assert [cell["settings"][k] for k in ("dasm", "racer_check", "image")] == ["-", "-", "-"]
 
 
 def test_detail_table_shows_only_varying_settings(tmp_path):

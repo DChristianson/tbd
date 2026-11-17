@@ -61,6 +61,7 @@ def test_job_writes_manifest_toolchain_and_console_log(tmp_path, monkeypatch):
     assert set(manifest["toolchain"]) == {"image_digest", "dasm", "racer_check"}
     assert manifest["toolchain"]["racer_check"]["sha256"]
     job = exp / "jobs" / "fake-t1-canonical-none-one-shot"
+    assert json.loads((job / "config.json").read_text())["toolchain"] == manifest["toolchain"]
     log = (job / "console.log").read_text()
     assert "sample 0 attempt 1: no_code" in log
     assert '"status": "completed"' in log

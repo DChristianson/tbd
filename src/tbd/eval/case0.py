@@ -19,7 +19,7 @@ The contract in full: docs/design/execution.md, "Execution contract".
 
     experiments/{experiment_id}/manifest.json   git SHA, toolchain (image digest, DASM, racer-check)
     experiments/{experiment_id}/jobs/{job_id}/
-        config.json            the cell: model, digest, options, prompt, grader
+        config.json            the cell: model, digest, options, prompt, grader, toolchain
         model_template.txt     the chat template Ollama wraps messages in
         metrics.json           status (running / completed / interrupted / failed) + results;
                                pid, host and updated_at, rewritten after every attempt
@@ -290,11 +290,13 @@ def main(argv: list[str] | None = None) -> int:
         "task_dir": str(args.spec.dir.relative_to(ROOT)),
         "check_files": args.spec.check_files,
         "check_py": args.spec.module is not None,
+        # Per job: the manifest only has the experiment's first job's toolchain.
+        "toolchain": toolchain(),
     }
     manifest = exp_dir / "manifest.json"
     if not manifest.exists():
         manifest.write_text(json.dumps({"experiment_id": exp_id, "created": stamp,
-                                        "git_sha": git_sha(), "toolchain": toolchain()},
+                                        "git_sha": git_sha(), "toolchain": config["toolchain"]},
                                        indent=2))
     (job_dir / "config.json").write_text(json.dumps(config, indent=2))
     if not anthropic_run:

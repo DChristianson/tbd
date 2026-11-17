@@ -8,7 +8,7 @@ and attempts.jsonl; a job folder can also be passed directly. Jobs are grouped
 into cells keyed by (model, facts, task, variant, mode) plus the run settings
 below, across all the experiments given (docs/design/experiment-grid.md,
 "Metrics per cell"). Jobs that differ in any setting -- including the model
-digest (a re-pulled model) or fact snapshot -- are separate cells, never pooled.
+digest (a re-pulled model), fact snapshot or toolchain -- are separate cells, never pooled.
 
 Per cell:
     pass@1        samples whose first attempt passed
@@ -18,9 +18,13 @@ Per cell:
     cost to pass  mean attempts per passing sample, output tokens, wall time,
                   API cost
     settings      digest, fact_snapshot, num_ctx, max_tokens, temperature,
-                  retries, effort, think; only the ones that differ between
-                  cells are shown as columns, and a grid row gets the ones that
-                  tell it apart from the same model's other rows
+                  retries, effort, think, and the toolchain that graded: dasm
+                  (version), racer_check (sha256 of the binary, not its path,
+                  which differs between Mac and container), image (container
+                  digest); "-" where a config doesn't record it. Only the ones
+                  that differ between cells are shown as columns, and a grid
+                  row gets the ones that tell it apart from the same model's
+                  other rows
 
 Flagged (marked † in the grid): a job whose metrics status isn't "completed",
 or that has no attempts or unreadable lines. A "running" job is also called
@@ -47,7 +51,7 @@ from pathlib import Path
 
 FACT_CONDITIONS = ("none", "contributed", "discovered", "both")
 SETTING_KEYS = ("digest", "fact_snapshot", "num_ctx", "max_tokens", "temperature", "retries",
-                "effort", "think")
+                "effort", "think", "dasm", "racer_check", "image")
 DIGEST_CHARS = 12
 FLAG = "\u2020"  # dagger
 # A running job rewrites metrics.json after every attempt, and one attempt is at most
@@ -119,8 +123,24 @@ def job_settings(cfg: dict) -> dict:
            "fact_snapshot": str(snapshot)[:DIGEST_CHARS] if snapshot else None,
            "num_ctx": cfg.get("num_ctx"), "max_tokens": cfg.get("max_tokens"),
            "temperature": cfg.get("temperature"), "retries": cfg.get("retries"),
-           "effort": cfg.get("effort"), "think": think}
+           "effort": cfg.get("effort"), "think": think, **toolchain_settings(cfg)}
     return {k: "-" if v is None else str(v) for k, v in raw.items()}
+
+
+def _short(digest) -> str | None:
+    """First DIGEST_CHARS hex of a digest, without an algorithm prefix ("sha256:")."""
+    if not digest:
+        return None
+    return str(digest).rsplit(":", 1)[-1][:DIGEST_CHARS]
+
+
+def toolchain_settings(cfg: dict) -> dict:
+    """The grading toolchain recorded in config.json; None for older configs.
+    racer-check is identified by its hash, not its path (Mac and container differ)."""
+    tc = cfg.get("toolchain") or {}
+    rc = tc.get("racer_check") or {}
+    return {"dasm": tc.get("dasm"), "racer_check": _short(rc.get("sha256")),
+            "image": _short(tc.get("image_digest"))}
 
 
 def attempt_budget(cfg: dict, attempts: list[dict]) -> int:
