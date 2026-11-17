@@ -1,0 +1,3 @@
+Create a kernel with stable framerate that changes the background color on every scanline. The first visible line is color 0, and each line is 2 more than the line above it, wrapping around at 256.
+
+Target: Atari 2600, NTSC. Write 6502 assembly for the DASM assembler. The standard headers are available: include "vcs.h" and include "macro.h". Reply with the complete program in a single ```asm code block.

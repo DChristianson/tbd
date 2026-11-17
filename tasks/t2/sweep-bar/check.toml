@@ -1,0 +1,65 @@
+# This file checks for a stable NTSC frame with picture line n in color (2n) mod 256, red from visible clock 82.
+# To run it on the reference:
+#   cd tasks/t2/sweep-bar && dasm reference.asm -f3 -I../../../vendor/atari2600 -obuild/reference.bin
+#   racer-check check.toml
+
+rom = "build/reference.bin"
+
+[run]
+frames = 100
+skip_frames = 1
+zero = true
+random_seeds = 100
+
+[[property]]
+kind = "frame_length"
+lines = 262
+
+# Graded: sync starts on line 0 and lasts 2-4 lines.
+[[property]]
+name = "vsync_span"
+kind = "signal_span"
+signal = "sync"
+first_line = 0
+min_clocks = 456
+max_clocks = 912
+
+# Not graded (see check.py): sync for exactly 3 lines from the start of line 0.
+[[property]]
+name = "vsync"
+kind = "signal_on_lines"
+signal = "sync"
+first_line = 0
+lines = 3
+
+[[property]]
+name = "blanking"
+kind = "blank_outside"
+lines = [40, 232]
+
+# Visible clocks 0-81.
+[[property]]
+name = "sweep"
+kind = "output_by_line"
+lines = [40, 232]
+clocks = [68, 150]
+start = 0
+step = 2
+
+# Visible clocks 82-159. check.py accepts $42-$46 here.
+[[property]]
+name = "bar"
+kind = "constant_output"
+lines = [40, 232]
+clocks = [150, 228]
+color = 0x46
+
+# Not graded (see check.py): COLUBK is written once in horizontal blank, then
+# once exactly at color clock 150.
+[[property]]
+name = "colubk_switch"
+kind = "write_window"
+chip = "tia"
+register = "COLUBK"
+lines = [40, 232]
+windows = [[0, 68], [150, 151]]
