@@ -33,18 +33,59 @@ A **job is one grid cell**: (model endpoint + model identity, facts condition +
 fact-store snapshot, task, variant, mode, k, temperature, seed, retry budget).
 It's independent and repeatable, so it can run anywhere.
 
-Output layout, taken from the proposal and used from the first harness run:
+`python -m tbd.eval.case0` runs one job and writes this layout (the YAML
+runner, below, will run many). Runs are never deleted or overwritten: if the
+job folder already exists the run stops with an error; pick a new
+`--experiment`.
 
 ```
-experiments/{experiment_id}/
-    manifest.json            # experiment definition, git SHA, image digest
-    jobs/{job_id}/
-        config.json          # the fully expanded cell
-        attempts.jsonl       # attempt records (schema in experiment-grid.md)
-        metrics.json         # pass@k, categories, tokens, wall time, cost
-        stdout.log, stderr.log
-        artifacts/           # ROMs, emulator outputs
+experiments/{experiment_id}/          # --experiment, default case0-{UTC stamp}
+    manifest.json        # written by the first job: experiment_id, created,
+                         #   git_sha, toolchain {image_digest, dasm,
+                         #   racer_check {path, sha256}}
+    jobs/{job_id}/       # {model}-{task}-{variant}-{facts}-{mode}, ':' and '/' -> '_'
+        config.json      # the expanded cell (fields below)
+        model_template.txt  # Ollama's chat template (not for anthropic)
+        attempts.jsonl   # one attempt record per line (experiment-grid.md)
+        metrics.json     # status, pass rate, categories, wall time (below)
+        console.log      # everything the job printed, stdout and stderr together
+        sample-NN/attempt-N/
+            request.json, response.json   # exact request body; raw reply
+            response.md, thinking.md      # reply text; thinking, if any
+            stream.jsonl                  # streamed chunks as received
+            prog.asm, vcs.h, macro.h      # extracted program, headers beside it
+            assemble.json, build/prog.bin # DASM result; the ROM if it assembled
+            {check}.toml, {check}.result.json  # each racer-check run, incl.
+                                          #   accepted-color re-runs (check-0x44...)
+            frames.jsonl.gz               # racer-check --frames, if check.py asks
+            attempt.json                  # this attempt's record
+            error.txt                     # if the request failed (timeout)
+            regrade-{stamp}/              # added later by tbd.eval.regrade
 ```
+
+Files after `stream.jsonl` exist only as far as the attempt got: no code
+means no `prog.asm`; an assemble error means no ROM or check results.
+
+**config.json**: `provider`, `model`, `model_digest` (Ollama; null for the
+API), `runtime`, `facts`, `fact_snapshot`, `task`, `variant`, `mode`,
+`samples`, `temperature` and `seed` (null where the provider takes none),
+`effort`, `thinking`, `retries` (0 for one-shot), `max_tokens`, `num_ctx`,
+`request_timeout_s`, `prompt`, `grader`, `task_dir`, `check_files`,
+`check_py`.
+
+**metrics.json**, rewritten after every sample: `status` (`running`,
+`completed`, `interrupted` on Ctrl-C, `failed` with `error` on a crash),
+`samples_planned`, `samples_done`, `passed`, `pass_rate`,
+`pass_at_1_first_attempt`, `first_attempt_categories`, `near_misses`,
+`attempts_total`, `wall_s`.
+
+**Toolchain**: `dasm` is the version DASM reports; `racer_check.sha256`
+hashes the binary that graded (the vendored source is pinned by `git_sha`);
+`image_digest` is read from `TBD_IMAGE_DIGEST`, which whoever starts the
+container sets, since an image can't know its own digest at build time. The
+dev container doesn't set it, so it's null there. Anything that can't be
+determined is null, never a guess. The manifest records the toolchain of the
+experiment's first job.
 
 Discovery runs are **not** independent jobs: each probe changes the fact
 store. They run as one sequential job that outputs a new fact-store snapshot.
@@ -62,6 +103,8 @@ Temperature 0 isn't bit-reproducible across GPUs either. Results are
 compared as pass@k over samples, never as single outputs.
 
 ## Experiment definition
+
+*Planned, tracked by tbd-f78.19; not built yet.*
 
 YAML, expanded by a small script into cells. The axes are the grid's:
 
