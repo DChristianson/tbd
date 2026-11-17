@@ -5,9 +5,9 @@
 fact_id = "F001"
 text = "DASM treats anything that starts in column 0 as a label. Instructions and directives (processor, include, org) must be indented by at least one space."
 source_type = "official_doc"
-source_ref = "unverified: DASM manual (dasm-assembler.github.io), section on source line format. Behavior reproduced with DASM 2.20.14.1: an unindented 'processor 6502' gives \"Unknown Mnemonic '6502'\"."
-license = "unverified"
-confidence = 0.6
+source_ref = "DASM 2.20.14.1 release (github.com/dasm-assembler/dasm, tag 2.20.14.1; the version pinned in .devcontainer/Dockerfile), manual docs/sources/manual.tex line 993 ('Label definitions start at the beginning of a line') and line 1141 ('There must be whitespace before a directive. Thus, directives must not appear in the first column of any line.'). Reproduced: an unindented 'processor 6502' gives \"Unknown Mnemonic '6502'\"."
+license = "GPL-2.0-or-later (DASM manual and docs/dasm.txt)"
+confidence = 0.9
 
 [[fact]]
 fact_id = "F002"
@@ -35,11 +35,11 @@ confidence = 0.9
 
 [[fact]]
 fact_id = "F005"
-text = "In DASM, ORG cannot move back within a segment: a second ORG to an address already assembled (for example a second ORG $FFFC for the vectors) fails with 'Origin Reverse-indexed'. Write the vectors once."
+text = "In DASM's default output format (-f1) and raw format (-f3), ORG addresses must ascend: a second ORG back to an address already assembled (for example a second ORG $FFFC after a vector table at $FFFA) fails with 'Origin Reverse-indexed'. Write the vectors once."
 source_type = "official_doc"
-source_ref = "unverified: DASM manual (dasm-assembler.github.io), ORG directive and error list. Behavior reproduced with DASM 2.20.14.1: a second 'org $FFFC' gives 'error: Origin Reverse-indexed.'"
-license = "unverified"
-confidence = 0.6
+source_ref = "DASM 2.20.14.1 release (github.com/dasm-assembler/dasm, tag 2.20.14.1; the version pinned in .devcontainer/Dockerfile), manual docs/sources/manual.tex output-format table (format 1: 'Any instructions which generate output ... must do so with an ascending ORG address'; format 3: 'Restrictions are the same as for format #1'; format 2 allows reverse-indexed ORG), and the error text 'Origin Reverse-indexed.' in src/main.c line 98. Reproduced with -f3."
+license = "GPL-2.0-or-later (DASM manual and source)"
+confidence = 0.9
 
 [[fact]]
 fact_id = "F006"
@@ -75,8 +75,8 @@ confidence = 0.9
 
 [[fact]]
 fact_id = "F010"
-text = "The NMOS 6502 has no DEC A or INC A (those are 65C02 instructions). To change the accumulator use SEC then SBC #1, or CLC then ADC #1, or count in X/Y with DEX/INX/DEY/INY."
+text = "The 6502 has no DEC A or INC A: DEC and INC only work on memory. To change the accumulator use SEC then SBC #1, or CLC then ADC #1, or count in X/Y with DEX/INX/DEY/INY."
 source_type = "official_doc"
-source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/emucore/M6502.m4 (DEC/INC exist only in memory addressing modes; opcodes $1A and $3A are NOPs). The 65C02 attribution is unverified: would need a 65C02 data sheet."
-license = "GPL-2.0-or-later (Stella; see stella-core/vendor/stella/NOTICE.md)"
-confidence = 0.8
+source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/emucore/M6502.m4 (DEC/INC exist only in memory addressing modes; opcodes $1A and $3A are NOPs); DASM 2.20.14.1 release (github.com/dasm-assembler/dasm, tag 2.20.14.1; the version pinned in .devcontainer/Dockerfile), manual docs/sources/6502.tex opcode table (DEC/INC: no implied or accumulator mode) and src/mne6502.c lines 59 and 63; 6502.ts (github.com/6502ts/6502.ts, commit 9c59f7d01e31), src/machine/cpu/Instruction.ts (DEC/INC memory modes only; $1A/$3A are NOPs)."
+license = "GPL-2.0-or-later (Stella, DASM); MIT (6502.ts)"
+confidence = 0.9
