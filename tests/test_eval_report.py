@@ -93,15 +93,39 @@ def test_experiments_combine_and_split_into_grid(tmp_path):
                                 ["m2", "—", "1/1", "—", "—"]]
 
 
-def test_same_cell_across_experiments_merges_and_flags_mixed_settings(tmp_path):
-    write_job(tmp_path / "e1", "m1", _config(), ONE_SHOT)
-    write_job(tmp_path / "e2", "m1", _config(max_tokens=64000), ONE_SHOT[:1])
+def test_same_cell_and_settings_across_experiments_merges(tmp_path):
+    write_job(tmp_path / "e1", "m1", _config(model_digest="abc"), ONE_SHOT)
+    write_job(tmp_path / "e2", "m1", _config(model_digest="abc"), ONE_SHOT[:1])
     [cell] = report.build_cells([report.load_job(j)
                                  for j in report.find_jobs([tmp_path / "e1", tmp_path / "e2"])])
     assert cell["samples"] == 4 and cell["samples_planned"] == 6
-    assert cell["settings"]["max_tokens"] == ["4096", "64000"]
-    assert cell["flags"] == ["jobs differ in max_tokens"]
-    assert report.grid_value(cell).endswith(report.FLAG)
+    assert cell["flags"] == []
+
+
+def test_different_settings_are_separate_cells_and_rows(tmp_path):
+    write_job(tmp_path / "e1", "m1", _config(), ONE_SHOT)
+    write_job(tmp_path / "e2", "m1", _config(max_tokens=64000), ONE_SHOT[:1])
+    write_job(tmp_path / "e2", "m2", _config(model="m2"), ONE_SHOT)
+    cells = report.build_cells([report.load_job(j)
+                                for j in report.find_jobs([tmp_path / "e1", tmp_path / "e2"])])
+    assert [(c["model"], c["settings"]["max_tokens"], c["samples"]) for c in cells] == [
+        ("m1", "4096", 3), ("m1", "64000", 1), ("m2", "4096", 3)]
+    assert all(c["flags"] == [] for c in cells)
+    [grid] = report.grid_tables(cells)
+    assert [r[:2] for r in grid["rows"]] == [["m1 (max_tokens=4096)", "1/3"],
+                                             ["m1 (max_tokens=64000)", "1/1"],
+                                             ["m2", "1/3"]]
+
+
+def test_repulled_model_is_a_separate_cell(tmp_path):
+    write_job(tmp_path / "e1", "m1", _config(model_digest="a" * 64), ONE_SHOT)
+    write_job(tmp_path / "e2", "m1", _config(model_digest="b" * 64), ONE_SHOT)
+    cells = report.build_cells([report.load_job(j)
+                                for j in report.find_jobs([tmp_path / "e1", tmp_path / "e2"])])
+    assert [c["settings"]["digest"] for c in cells] == ["a" * 12, "b" * 12]
+    [grid] = report.grid_tables(cells)
+    assert [r[0] for r in grid["rows"]] == [f"m1 (digest={'a' * 12})", f"m1 (digest={'b' * 12})"]
+    assert "digest" in report.detail_table(cells)["headers"]
 
 
 def test_incomplete_job_reported_and_flagged(tmp_path):
@@ -129,7 +153,7 @@ def test_old_config_missing_keys(tmp_path):
     assert cell["key"] == ("llama3.1", "none", "t1", "canonical", "tool-feedback")
     assert cell["budget"] == 2   # no retries recorded: the most attempts seen
     assert cell["near_misses"] == 0 and cell["output_tokens"] == 0
-    assert cell["settings"]["num_ctx"] == ["-"]
+    assert cell["settings"]["num_ctx"] == "-"
 
 
 def test_detail_table_shows_only_varying_settings(tmp_path):

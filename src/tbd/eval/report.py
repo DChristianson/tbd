@@ -5,8 +5,10 @@
 
 Reads (never writes) each experiment's jobs/{job}/config.json, metrics.json
 and attempts.jsonl; a job folder can also be passed directly. Jobs are grouped
-into cells keyed by (model, facts, task, variant, mode), across all the
-experiments given (docs/design/experiment-grid.md, "Metrics per cell").
+into cells keyed by (model, facts, task, variant, mode) plus the run settings
+below, across all the experiments given (docs/design/experiment-grid.md,
+"Metrics per cell"). Jobs that differ in any setting -- including the model
+digest (a re-pulled model) or fact snapshot -- are separate cells, never pooled.
 
 Per cell:
     pass@1        samples whose first attempt passed
@@ -15,12 +17,13 @@ Per cell:
     first-attempt categories, near misses (first attempt)
     cost to pass  mean attempts per passing sample, output tokens, wall time,
                   API cost
-    settings      num_ctx, max_tokens, temperature, retries, effort, think;
-                  only the ones that differ between cells are shown as columns
+    settings      digest, fact_snapshot, num_ctx, max_tokens, temperature,
+                  retries, effort, think; only the ones that differ between
+                  cells are shown as columns, and a grid row gets the ones that
+                  tell it apart from the same model's other rows
 
-Two kinds of flag (marked † in the grid): a job whose metrics status isn't
-"completed" (or has no attempts / unreadable lines), and a cell that merges
-jobs run with different settings.
+Flagged (marked † in the grid): a job whose metrics status isn't "completed",
+or that has no attempts or unreadable lines.
 
 Aggregation is pure functions over plain dicts (summarize_samples,
 aggregate_cell, build_cells, grid_tables, detail_table); load_job does the
@@ -37,7 +40,9 @@ from collections import Counter
 from pathlib import Path
 
 FACT_CONDITIONS = ("none", "contributed", "discovered", "both")
-SETTING_KEYS = ("num_ctx", "max_tokens", "temperature", "retries", "effort", "think")
+SETTING_KEYS = ("digest", "fact_snapshot", "num_ctx", "max_tokens", "temperature", "retries",
+                "effort", "think")
+DIGEST_CHARS = 12
 FLAG = "\u2020"  # dagger
 
 
@@ -81,7 +86,9 @@ def find_jobs(paths: list[Path]) -> list[Path]:
 # ---------------------------------------------------------------- aggregation
 
 def cell_key(job: dict) -> tuple:
-    """(model, facts, task, variant, mode). Older configs lack some keys."""
+    """(model, facts, task, variant, mode). Older configs lack some keys.
+
+    The grid position; build_cells also splits on job_settings."""
     cfg = job["config"]
     model = (cfg.get("model")
              or next((a.get("requested_model") for a in job["attempts"]
@@ -96,7 +103,11 @@ def job_settings(cfg: dict) -> dict:
     think = cfg.get("thinking", cfg.get("think"))
     if isinstance(think, dict):
         think = think.get("type")
-    raw = {"num_ctx": cfg.get("num_ctx"), "max_tokens": cfg.get("max_tokens"),
+    digest = cfg.get("model_digest")
+    snapshot = cfg.get("fact_snapshot")
+    raw = {"digest": digest[:DIGEST_CHARS] if digest else None,
+           "fact_snapshot": str(snapshot)[:DIGEST_CHARS] if snapshot else None,
+           "num_ctx": cfg.get("num_ctx"), "max_tokens": cfg.get("max_tokens"),
            "temperature": cfg.get("temperature"), "retries": cfg.get("retries"),
            "effort": cfg.get("effort"), "think": think}
     return {k: "-" if v is None else str(v) for k, v in raw.items()}
@@ -155,20 +166,16 @@ def job_flags(job: dict) -> list[str]:
 
 
 def aggregate_cell(key: tuple, jobs: list[dict]) -> dict:
-    """All the per-cell metrics for the jobs sharing one cell key."""
+    """All the per-cell metrics for jobs sharing one cell key and the same settings."""
     samples, budgets, planned = [], set(), 0
-    settings: dict[str, set] = {k: set() for k in SETTING_KEYS}
+    settings = job_settings(jobs[0]["config"])
     flags = []
     for job in jobs:
         samples += summarize_samples(job["attempts"])
         budgets.add(attempt_budget(job["config"], job["attempts"]))
         planned += job["config"].get("samples") or job["metrics"].get("samples_planned") or 0
-        for k, v in job_settings(job["config"]).items():
-            settings[k].add(v)
+        assert job_settings(job["config"]) == settings, "build_cells splits on settings"
         flags += job_flags(job)
-    mixed = [k for k, vs in settings.items() if len(vs) > 1]
-    if mixed:
-        flags.append("jobs differ in " + ", ".join(mixed))
     passes = [s for s in samples if s["passed"]]
     costs = [s["cost_usd"] for s in samples if s["cost_usd"] is not None]
     model, facts, task, variant, mode = key
@@ -189,7 +196,7 @@ def aggregate_cell(key: tuple, jobs: list[dict]) -> dict:
         "output_tokens": sum(s["output_tokens"] for s in samples),
         "wall_ms": sum(s["wall_ms"] for s in samples),
         "cost_usd": sum(costs) if costs else None,
-        "settings": {k: sorted(v) for k, v in settings.items()},
+        "settings": settings,
         "flags": flags,
     }
 
@@ -197,8 +204,13 @@ def aggregate_cell(key: tuple, jobs: list[dict]) -> dict:
 def build_cells(jobs: list[dict]) -> list[dict]:
     grouped: dict[tuple, list] = {}
     for job in jobs:
-        grouped.setdefault(cell_key(job), []).append(job)
-    return [aggregate_cell(k, v) for k, v in sorted(grouped.items())]
+        settings = tuple(job_settings(job["config"]).items())
+        grouped.setdefault((cell_key(job), settings), []).append(job)
+    return [aggregate_cell(key, v) for (key, _), v in sorted(grouped.items())]
+
+
+def _settings_id(cell: dict) -> tuple:
+    return tuple(cell["settings"][k] for k in SETTING_KEYS)
 
 
 # ---------------------------------------------------------------- tables
@@ -230,10 +242,14 @@ def grid_tables(cells: list[dict]) -> list[dict]:
         sections.setdefault((c["task"], c["variant"], c["mode"]), []).append(c)
     tables = []
     for (task, variant, mode), group in sorted(sections.items()):
-        models = sorted({c["model"] for c in group})
-        lookup = {(c["model"], c["facts"]): c for c in group}
-        rows = [[m] + [grid_value(lookup[(m, f)]) if (m, f) in lookup else "\u2014"
-                       for f in facts] for m in models]
+        # One row per model and settings; a model run with two settings gets two rows,
+        # labelled with the settings that tell them apart.
+        row_ids = sorted({(c["model"], _settings_id(c)) for c in group})
+        lookup = {(c["model"], _settings_id(c), c["facts"]): c for c in group}
+        rows = [[row_label(model, sid, row_ids)]
+                + [grid_value(lookup[(model, sid, f)]) if (model, sid, f) in lookup
+                   else "\u2014" for f in facts]
+                for model, sid in row_ids]
         how = "pass@1" if mode == "one-shot" else "pass@1 \u2192 pass@budget"
         tables.append({"title": f"{task} / {variant} / {mode}",
                        "headers": ["model"] + [f"facts: {f}" for f in facts],
@@ -241,10 +257,17 @@ def grid_tables(cells: list[dict]) -> list[dict]:
     return tables
 
 
+def row_label(model: str, sid: tuple, row_ids: list[tuple]) -> str:
+    """The model, plus the settings that differ from its other rows in the same table."""
+    others = [s for m, s in row_ids if m == model]
+    diff = [f"{k}={v}" for i, (k, v) in enumerate(zip(SETTING_KEYS, sid))
+            if len({s[i] for s in others}) > 1]
+    return f"{model} ({', '.join(diff)})" if diff else model
+
+
 def varying_settings(cells: list[dict]) -> list[str]:
     """Settings whose values aren't the same for every cell."""
-    return [k for k in SETTING_KEYS
-            if len({v for c in cells for v in c["settings"][k]}) > 1]
+    return [k for k in SETTING_KEYS if len({c["settings"][k] for c in cells}) > 1]
 
 
 def _wall(ms: int) -> str:
@@ -275,9 +298,9 @@ def detail_table(cells: list[dict]) -> dict:
             "-" if c["mean_attempts_to_pass"] is None else f"{c['mean_attempts_to_pass']:.2f}",
             f"{c['output_tokens']:,}", _wall(c["wall_ms"]),
             "-" if c["cost_usd"] is None else f"${c['cost_usd']:.4f}",
-        ] + [", ".join(c["settings"][k]) for k in varying]
+        ] + [c["settings"][k] for k in varying]
           + ["; ".join(c["flags"]) or ""])
-    constant = [f"{k}={cells[0]['settings'][k][0]}" for k in SETTING_KEYS
+    constant = [f"{k}={cells[0]['settings'][k]}" for k in SETTING_KEYS
                 if k not in varying and cells]
     notes = ["first-attempt categories and near misses are over first attempts; "
              "attempts/pass is the mean attempt number of the first pass; "
@@ -307,8 +330,7 @@ def render_markdown(tables: list[dict], sources: list[str]) -> str:
                 "|" + "---|" * len(t["headers"])]
         out += ["| " + " | ".join(map(_md_cell, r)) + " |" for r in t["rows"]]
         out += [""] + t["notes"] + [""]
-    out += [f"{FLAG} flagged: incomplete job or jobs with different settings merged; "
-            "see the flags column.", ""]
+    out += [f"{FLAG} flagged: incomplete job; see the flags column.", ""]
     return "\n".join(out)
 
 
@@ -329,8 +351,7 @@ def render_html(tables: list[dict], sources: list[str]) -> str:
                 for r in t["rows"]]
         out.append("</table>")
         out += [f"<p class='note'>{e(n)}</p>" for n in t["notes"]]
-    out.append(f"<p class='note'>{FLAG} flagged: incomplete job or jobs with different "
-               "settings merged; see the flags column.</p>")
+    out.append(f"<p class='note'>{FLAG} flagged: incomplete job; see the flags column.</p>")
     return "\n".join(out) + "\n"
 
 
