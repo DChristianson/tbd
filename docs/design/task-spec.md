@@ -328,7 +328,8 @@ Everything is in the prompt and the check file.
   value fails. That's part of what this variant measures.
 - Relaxed tier: `frame_length_range` 310–314 and `picture_block`
   `lines = 228`, `start_window = [46, 51]`.
-- `broken/ntsc.asm`: the canonical reference, which must fail.
+- Built as `tasks/t1/pal/`. `broken/` has the NTSC reference, and a PAL
+  frame in NTSC's red $42.
 
 Decision: whether 3/45/228/36 is the only layout the strict check accepts.
 PAL picture heights vary more in practice than NTSC's 192 (228 and 242 are
