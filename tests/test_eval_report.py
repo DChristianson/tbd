@@ -1,6 +1,7 @@
 """Grid report: aggregation over small synthetic attempt logs (no model or grader needed)."""
 
 import json
+from datetime import datetime, timedelta, timezone
 
 from tbd.eval import report
 
@@ -136,7 +137,7 @@ def test_incomplete_job_reported_and_flagged(tmp_path):
     cells = report.build_cells([report.load_job(j) for j in report.find_jobs([tmp_path / "e1"])])
     by_model = {c["model"]: c for c in cells}
     assert by_model["m1"]["samples"] == 1
-    assert by_model["m1"]["flags"] == ["e1/run: status running",
+    assert by_model["m1"]["flags"] == ["e1/run: status running (no heartbeat; stale)",
                                        "e1/run: 1 unreadable attempt line(s)"]
     assert by_model["m2"]["samples"] == 0
     assert "e1/empty: no attempts" in by_model["m2"]["flags"]
@@ -180,3 +181,62 @@ def test_cli_markdown_and_html(tmp_path, capsys):
     # the input is never touched
     assert sorted(p.name for p in (exp / "jobs" / "a").iterdir()) == [
         "attempts.jsonl", "config.json", "metrics.json"]
+
+
+# ---------------------------------------------------------------- staleness
+
+NOW = datetime(2026, 11, 17, 12, 0, tzinfo=timezone.utc)
+
+
+def _running(age_s, **extra):
+    return {"status": "running", "pid": 4242, "host": "box",
+            "updated_at": (NOW - timedelta(seconds=age_s)).isoformat(timespec="seconds"),
+            **extra}
+
+
+def test_fresh_running_job_is_not_stale():
+    assert report.stale_reason(_running(60), {"request_timeout_s": 900}, NOW) is None
+    assert report.stale_reason(_running(60), {}, NOW, "box", lambda pid: True) is None
+
+
+def test_old_heartbeat_is_stale():
+    reason = report.stale_reason(_running(3 * 3600), {"request_timeout_s": 900}, NOW)
+    assert reason == "last heartbeat 3h00m ago"
+    # the threshold is the request timeout plus a margin
+    limit = 900 + report.HEARTBEAT_MARGIN_S
+    assert report.stale_reason(_running(limit - 1), {"request_timeout_s": 900}, NOW) is None
+    assert report.stale_reason(_running(limit + 1), {"request_timeout_s": 900}, NOW)
+    # no timeout in the config: the default
+    default = report.DEFAULT_REQUEST_TIMEOUT_S + report.HEARTBEAT_MARGIN_S
+    assert report.stale_reason(_running(default - 1), {}, NOW) is None
+    assert report.stale_reason(_running(default + 1), {}, NOW)
+
+
+def test_gone_pid_on_this_host_is_stale():
+    assert report.stale_reason(_running(5), {}, NOW, "box", lambda pid: False) == "pid 4242 gone"
+    # another host's pid can't be checked from here
+    assert report.stale_reason(_running(5), {}, NOW, "other", lambda pid: False) is None
+
+
+def test_missing_heartbeat_is_stale():
+    assert report.stale_reason({"status": "running"}, {}, NOW) == "no heartbeat"
+
+
+def test_finished_jobs_are_never_stale():
+    for status in ("completed", "interrupted", "failed"):
+        assert report.stale_reason({"status": status}, {}, NOW) is None
+        assert report.stale_reason({**_running(10 ** 6), "status": status}, {}, NOW) is None
+
+
+def test_report_flags_stale_and_fresh_running_jobs(tmp_path):
+    for name, metrics in [("old", _running(7200)), ("fresh", _running(30)),
+                          ("dead", _running(30, pid=999)), ("legacy", {"status": "running"})]:
+        job = write_job(tmp_path / "e", name, _config(model=name, request_timeout_s=900),
+                        ONE_SHOT[:1])
+        (job / "metrics.json").write_text(json.dumps(metrics))
+    jobs = [report.load_job(j) for j in report.find_jobs([tmp_path / "e"])]
+    flags = {j["job"]: report.job_flags(j, NOW, "box", lambda pid: pid != 999) for j in jobs}
+    assert flags == {"old": ["e/old: status running (stale: last heartbeat 2h00m ago)"],
+                     "fresh": ["e/fresh: status running"],
+                     "dead": ["e/dead: status running (stale: pid 999 gone)"],
+                     "legacy": ["e/legacy: status running (no heartbeat; stale)"]}

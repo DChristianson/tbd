@@ -16,7 +16,8 @@ overwritten: an existing job folder is an error; pick a new --experiment.
     experiments/{experiment_id}/jobs/{job_id}/
         config.json            the cell: model, digest, options, prompt, grader
         model_template.txt     the chat template Ollama wraps messages in
-        metrics.json           status (running / completed / interrupted / failed) + results
+        metrics.json           status (running / completed / interrupted / failed) + results;
+                               pid, host and updated_at, rewritten after every attempt
         attempts.jsonl         one line per attempt (same as each attempt.json)
         sample-NN/attempt-N/
             request.json       exact body sent to Ollama
@@ -34,8 +35,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import signal
+import socket
 import subprocess
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -87,7 +92,8 @@ def git_sha() -> str:
         return ""
 
 
-def run_job(args, sample: int, job_dir: Path, log) -> dict:
+def run_job(args, sample: int, job_dir: Path, log, on_attempt=None) -> dict:
+    """One sample. on_attempt() is called after each attempt is logged (the heartbeat)."""
     seed = args.seed + sample
     messages = [{"role": "user", "content": args.spec.prompt}]
     budget = 1 if args.mode == "one-shot" else 1 + args.retries
@@ -138,6 +144,8 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
         log.flush()
         print(f"  sample {sample} attempt {attempt_no}: {grade.category}"
               + (f" ({grade.detail[:100]})" if grade.detail else ""), flush=True)
+        if on_attempt:
+            on_attempt()
         if attempt_no == 1:
             first = grade.category
             first_near = grade.near_miss
@@ -271,12 +279,13 @@ def main(argv: list[str] | None = None) -> int:
     status = "running"
     write_metrics(job_dir, args, results, status, t0)
     try:
-        with open(job_dir / "attempts.jsonl", "a") as log:
+        with sigterm_as_interrupt(), open(job_dir / "attempts.jsonl", "a") as log:
             for s in range(args.samples):
-                results.append(run_job(args, s, job_dir, log))
+                results.append(run_job(args, s, job_dir, log,
+                                       lambda: write_metrics(job_dir, args, results, status, t0)))
                 write_metrics(job_dir, args, results, status, t0)
         status = "completed"
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:   # Ctrl-C, or SIGTERM via sigterm_as_interrupt
         status = "interrupted"
         raise
     except BaseException as e:
@@ -287,6 +296,29 @@ def main(argv: list[str] | None = None) -> int:
         metrics = write_metrics(job_dir, args, results, status, t0, locals().get("error"))
         print(json.dumps(metrics, indent=2))
     return 0
+
+
+class Terminated(KeyboardInterrupt):
+    """SIGTERM (e.g. a shell timeout): ends the job like Ctrl-C, as "interrupted"."""
+
+
+@contextmanager
+def sigterm_as_interrupt():
+    """Raise Terminated on SIGTERM while the block runs; restore the old handler after.
+
+    SIGKILL can't be caught; readers spot that job by its stale heartbeat
+    (tbd.eval.report.stale_reason)."""
+    def handler(signum, frame):
+        raise Terminated(f"signal {signum}")
+    try:
+        previous = signal.signal(signal.SIGTERM, handler)
+    except ValueError:   # not the main thread: leave signals alone
+        yield
+        return
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 def write_metrics(job_dir: Path, args, results: list[dict], status: str, t0: float,
@@ -306,8 +338,15 @@ def write_metrics(job_dir: Path, args, results: list[dict], status: str, t0: flo
         "near_misses": sum(bool(r.get("near_miss")) for r in results),
         "attempts_total": sum(r["attempts"] for r in results),
         "wall_s": round(time.time() - t0, 1),
+        # Heartbeat: a "running" job whose updated_at stops moving, or whose pid is
+        # gone, was killed without the chance to say so (tbd.eval.report.stale_reason).
+        "pid": os.getpid(), "host": socket.gethostname(),
+        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
-    (job_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+    # Write then rename, so a reader (the grid report) never sees a half-written file.
+    tmp = job_dir / "metrics.json.tmp"
+    tmp.write_text(json.dumps(metrics, indent=2))
+    os.replace(tmp, job_dir / "metrics.json")
     return metrics
 
 
