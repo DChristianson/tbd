@@ -49,14 +49,32 @@ from tbd.paths import RACER_CHECK, ROOT
 
 # ---------------------------------------------------------------- model
 
+# A cut-off reply is often a repetition loop as long as the output cap. Echoing all of it
+# back fills the context window (Ollama then silently drops the oldest tokens, prompt
+# first), so the retry sees only its start. The full reply is still saved with the attempt.
+TRUNCATED_ECHO_CHARS = 2000
+
+
 def feedback(asm_rec: dict, grade: Grade) -> str:
-    if grade.category == "no_code":
+    if grade.category == "truncated":
+        what = ("Your reply hit the output length limit before the program was complete, "
+                "so there was no complete ```asm code block to assemble.")
+    elif grade.category == "refusal":
+        what = "There was no program in your reply."
+    elif grade.category == "no_code":
         what = "I couldn't find a complete program in a single ```asm code block."
     elif grade.category == "assemble_error":
         what = "DASM reported errors:\n" + "\n".join(asm_rec["errors"][:10])
     else:
         what = f"It assembled, but running it in an emulator failed: {grade.detail}"
     return f"{what}\n\nFix it and reply with the complete program in a single ```asm code block."
+
+
+def echoed_reply(resp: dict, text: str, grade: Grade):
+    """The assistant turn sent back on a retry: the reply as given, unless it was cut off."""
+    if grade.category == "truncated" and len(text) > TRUNCATED_ECHO_CHARS:
+        return text[:TRUNCATED_ECHO_CHARS] + "\n[... reply cut off at the output length limit]"
+    return resp.get("assistant_content") or text
 
 
 # ---------------------------------------------------------------- run
@@ -129,7 +147,7 @@ def run_job(args, sample: int, job_dir: Path, log) -> dict:
         if grade.ok:
             return {"passed": True, "attempts": attempt_no, "first_category": None,
                     "near_miss": False}
-        messages += [{"role": "assistant", "content": resp.get("assistant_content") or text},
+        messages += [{"role": "assistant", "content": echoed_reply(resp, text, grade)},
                      {"role": "user", "content": feedback(asm_rec, grade)}]
     return {"passed": False, "attempts": budget, "first_category": first,
             "near_miss": first_near}
