@@ -86,7 +86,7 @@ python -m tbd.eval.case0 --model llama3.1 --samples 1 --experiment my-first-run
 
 `--task` and `--variant` pick the task (default `t1` / `canonical`, from
 `tasks/t1/canonical/`). Each sample sends the variant's `prompt.txt` as a single user message (no system
-prompt, no other context), pulls the program out of the reply, assembles it,
+prompt, no other context unless `--facts` adds reference notes), pulls the program out of the reply, assembles it,
 and checks it with `racer-check`.
 
 ### Models
@@ -117,6 +117,7 @@ Claude takes no temperature or seed; thinking is on, with depth set by
 | Option | Default | Meaning |
 |---|---|---|
 | `--samples N` | 10 | samples (independent requests) |
+| `--facts` | `none` | `contributed`, `discovered` or `both`: put that condition's facts from `facts/` before the prompt as a "Reference notes" block (see facts/README.md) |
 | `--mode` | `one-shot` | or `tool-feedback`: on failure, the assembler or checker message goes back to the model, up to `--retries` (3) more attempts |
 | `--max-tokens` | 4096 (Ollama), 64000 (Claude) | output cap, thinking included |
 | `--timeout` | 600 | wall-clock seconds per request; output so far is kept |

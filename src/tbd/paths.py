@@ -14,6 +14,9 @@ ROOT = Path(__file__).resolve().parents[2]
 # Task definitions: prompt-adjacent data, reference solution, check files.
 TASKS = ROOT / "tasks"
 
+# The fact store: facts/*.toml (facts/README.md).
+FACTS = ROOT / "facts"
+
 # DASM's vcs.h / macro.h (GPL-2.0-or-later; see its NOTICE.md).
 HEADERS = ROOT / "vendor" / "atari2600"
 

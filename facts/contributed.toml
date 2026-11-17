@@ -1,0 +1,82 @@
+# Contributed facts: official_doc / human_post. Format and rules: facts/README.md.
+# Seeded from reading local-model failures on Task 1 (tbd-dpu.7).
+
+[[fact]]
+fact_id = "F001"
+text = "DASM treats anything that starts in column 0 as a label. Instructions and directives (processor, include, org) must be indented by at least one space."
+source_type = "official_doc"
+source_ref = "DASM 2.20.14.1 release (github.com/dasm-assembler/dasm, tag 2.20.14.1; the version pinned in .devcontainer/Dockerfile), manual docs/sources/manual.tex line 993 ('Label definitions start at the beginning of a line') and line 1141 ('There must be whitespace before a directive. Thus, directives must not appear in the first column of any line.'). Reproduced: an unindented 'processor 6502' gives \"Unknown Mnemonic '6502'\"."
+license = "GPL-2.0-or-later (DASM manual and docs/dasm.txt)"
+confidence = 0.9
+
+[[fact]]
+fact_id = "F002"
+text = "TIA and RIOT register names such as VSYNC, VBLANK, WSYNC and COLUBK are not built into DASM; they come from 'include \"vcs.h\"'. Macros such as CLEAN_START and VERTICAL_SYNC come from 'include \"macro.h\"'."
+source_type = "official_doc"
+source_ref = "vendor/atari2600/vcs.h v1.06 (header: 'defines hardware registers and memory mapping for the Atari 2600', a DASM companion file); vendor/atari2600/macro.h v1.09 (defines MAC CLEAN_START, MAC VERTICAL_SYNC)"
+license = "GPL-2.0-or-later (DASM support files; see vendor/atari2600/NOTICE.md)"
+confidence = 0.95
+
+[[fact]]
+fact_id = "F003"
+text = "TIA write registers from vcs.h: VSYNC $00, VBLANK $01, WSYNC $02, COLUP0 $06, COLUP1 $07, COLUPF $08, COLUBK $09, CTRLPF $0A, PF0 $0D, PF1 $0E, PF2 $0F. RIOT timer: TIM64T $296 (write), INTIM $284 (read)."
+source_type = "official_doc"
+source_ref = "vendor/atari2600/vcs.h v1.06, register definition comments"
+license = "GPL-2.0-or-later (DASM support files; see vendor/atari2600/NOTICE.md)"
+confidence = 0.95
+
+[[fact]]
+fact_id = "F004"
+text = "The 6502 vectors are the last six bytes of the address space, low byte first: NMI at $FFFA, RESET at $FFFC, IRQ/BRK at $FFFE. A 2600 program must put its start address at $FFFC."
+source_type = "official_doc"
+source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/emucore/M6502.cxx (reset loads PC from $fffc/$fffd), M6502.m4 (BRK/IRQ loads PC from $fffe), PlusROM.cxx (comment 'NMI @ $FFFA')"
+license = "GPL-2.0-or-later (Stella; see stella-core/vendor/stella/NOTICE.md)"
+confidence = 0.9
+
+[[fact]]
+fact_id = "F005"
+text = "In DASM's default output format (-f1) and raw format (-f3), ORG addresses must ascend: a second ORG back to an address already assembled (for example a second ORG $FFFC after a vector table at $FFFA) fails with 'Origin Reverse-indexed'. Write the vectors once."
+source_type = "official_doc"
+source_ref = "DASM 2.20.14.1 release (github.com/dasm-assembler/dasm, tag 2.20.14.1; the version pinned in .devcontainer/Dockerfile), manual docs/sources/manual.tex output-format table (format 1: 'Any instructions which generate output ... must do so with an ascending ORG address'; format 3: 'Restrictions are the same as for format #1'; format 2 allows reverse-indexed ORG), and the error text 'Origin Reverse-indexed.' in src/main.c line 98. Reproduced with -f3."
+license = "GPL-2.0-or-later (DASM manual and source)"
+confidence = 0.9
+
+[[fact]]
+fact_id = "F006"
+text = "An NTSC frame is 262 scanlines: VSYNC on for 3 lines, then 37 lines of vertical blank, then the visible picture and overscan for the rest."
+source_type = "official_doc"
+source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/emucore/tia/frame-manager/FrameManager.hxx (Metrics: vsync = 3, vblankNTSC = 37, frameSizeNTSC = 262); vendor/atari2600/macro.h VERTICAL_SYNC ('a proper 3 scanline vertical sync sequence')"
+license = "GPL-2.0-or-later (Stella; DASM support files)"
+confidence = 0.9
+
+[[fact]]
+fact_id = "F007"
+text = "A scanline is 76 CPU cycles (228 color clocks, 3 per cycle); the first 68 clocks are horizontal blank. Writing any value to WSYNC halts the CPU until the start of the next scanline."
+source_type = "official_doc"
+source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/emucore/tia/TIAConstants.hxx (H_CYCLES = 76, CYCLE_CLOCKS = 3, H_CLOCKS = 228, H_BLANK_CLOCKS = 68), tia/TIA.cxx (write to WSYNC: m6502().requestHalt())"
+license = "GPL-2.0-or-later (Stella; see stella-core/vendor/stella/NOTICE.md)"
+confidence = 0.9
+
+[[fact]]
+fact_id = "F008"
+text = "VSYNC and VBLANK are switched by bit 1: write 2 to turn vertical sync (or vertical blank) on and 0 to turn it off."
+source_type = "official_doc"
+source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/emucore/tia/TIA.cxx (setVsync(value & 0x02), setVblank(value & 0x02)); vendor/atari2600/vcs.h v1.06 (VSYNC/VBLANK bit masks '0000 00x0' / 'xx00 00x0')"
+license = "GPL-2.0-or-later (Stella; DASM support files)"
+confidence = 0.9
+
+[[fact]]
+fact_id = "F009"
+text = "A TIA color byte is hue in the high nibble and luminance in the low nibble (bit 0 unused). On NTSC, red is hue 4: $40-$4E run from dark to light red, and $42 is a clear red."
+source_type = "official_doc"
+source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/common/PaletteHandler.cxx ourNTSCPalette ($40-$4E are reds; $42 = #a71a1a); vendor/atari2600/vcs.h (COLUBK 'Color-Luminance Background', mask 'xxxx xxx0')"
+license = "GPL-2.0-or-later (Stella; DASM support files)"
+confidence = 0.9
+
+[[fact]]
+fact_id = "F010"
+text = "The 6502 has no DEC A or INC A: DEC and INC only work on memory. To change the accumulator use SEC then SBC #1, or CLC then ADC #1, or count in X/Y with DEX/INX/DEY/INY."
+source_type = "official_doc"
+source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/emucore/M6502.m4 (DEC/INC exist only in memory addressing modes; opcodes $1A and $3A are NOPs); DASM 2.20.14.1 release (github.com/dasm-assembler/dasm, tag 2.20.14.1; the version pinned in .devcontainer/Dockerfile), manual docs/sources/6502.tex opcode table (DEC/INC: no implied or accumulator mode) and src/mne6502.c lines 59 and 63; 6502.ts (github.com/6502ts/6502.ts, commit 9c59f7d01e31), src/machine/cpu/Instruction.ts (DEC/INC memory modes only; $1A/$3A are NOPs)."
+license = "GPL-2.0-or-later (Stella, DASM); MIT (6502.ts)"
+confidence = 0.9
