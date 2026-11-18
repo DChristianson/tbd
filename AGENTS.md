@@ -157,3 +157,30 @@ python -m pytest              # racer-check / stella-core tests skip if not buil
 - Task-specific code and data stay out of `grading.py` / `models.py`; a new
   task or variant adds a `tasks/<task>/<variant>/` folder rather than code.
 - Paths to the checkout and built tools come from `tbd.paths`.
+
+## Writing for Readers
+
+Applies to PR descriptions, plans, design docs, bead descriptions and commit
+messages. The reader has not seen the session that produced the work, so write
+for them, not for yourself.
+
+- **Start with why.** Say what problem the work solves and what the reader
+  needs to decide, before describing what was built.
+- **Don't refer to things the reader hasn't seen.** That includes
+  alternatives you considered but never introduced ("instead of a suffixed
+  name"), internal names or formulas ("seed + 0"), and shorthand for events
+  ("#26 had it open"). Explain each one, or leave it out.
+- **Give one reason per sentence.** If a sentence joins two arguments with
+  "and", split it.
+- **Write full sentences**, with articles and connecting words. Avoid
+  note-style fragments and chains of clauses.
+- **Argue the decisions and link to the inventory.** Spend the words on the
+  choices a reviewer should check and why each one was made. Don't repeat lists
+  that the code, tests or docs already hold (config keys, every test case,
+  full command output); point to them.
+- **Check that every reason still holds** when you write it down. For example,
+  a reason that depended on another PR being open stops holding once that PR
+  merges.
+- **Before posting, have a fresh reader check it.** Give an agent with no
+  session context only the text (and the diff, for a PR). Ask it to quote
+  every sentence it can't follow and every claim the code contradicts.
