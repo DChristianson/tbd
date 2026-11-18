@@ -57,6 +57,20 @@ from = 5                 # nothing held from frame 5 on
 
 Each joystick, `joystick0` and `joystick1`, takes `up`, `down`, `left`, `right`, and `fire`, but not two opposite directions; `console` takes `reset` and `select`. What an entry does not name is released, and before the first entry nothing is held. The simulator applies each frame's input as `VSYNC` turns on, starting the frame, so a program that reads its input once a frame sees one value for the whole frame. The same script is used for every run, zero and random. A file with a script is a scripted session: the unit of a played game's test.
 
+**Paddles** (milestone 10, task 8) are plugged into joystick 0's port. `paddle0` and `paddle1` turn a knob to a position from 0 to 1: 0 charges at once, 1 slowest, 380 lines ([`TIA-INPUT-2`](target-model.md#tia-input-2-paddles)). A knob stays where an entry turns it until a later entry turns it again, as a knob left alone does. `paddle0_fire` and `paddle1_fire` press a button, and are released unless an entry names them. A paddle no entry has turned is unplugged, and its input never charges. An entry that holds joystick 0 while a paddle is plugged in is refused, and so is a button pressed on a paddle that was never turned:
+
+```toml
+[[input]]
+from = 1
+paddle0 = 0.25
+paddle1 = 0.5
+
+[[input]]
+from = 30
+paddle0 = 0.75           # paddle 1 stays at 0.5
+paddle0_fire = true
+```
+
 **Ranges** are half-open, `[start, end)`, as in the design sketches: `lines = [40, 232]` is lines 40 through 231. Lines are numbered within the frame, line 0 being the line on which `VSYNC` turns on. Color clocks are numbered within the line, 0-227; 68 is the first visible clock. A write's clock is the first clock that shows its effect ([`BOARD-CYCLE-1`](target-model.md#board-cycle-1-order-of-events-within-a-cycle)).
 
 ## Property kinds
@@ -64,10 +78,10 @@ Each joystick, `joystick0` and `joystick1`, takes `up`, `down`, `left`, `right`,
 | Kind | Parameters | Requires, in every checked frame |
 |---|---|---|
 | `frame_length` | `lines` | The frame is exactly `lines` lines long |
-| `frame_length_range` | `min_lines`, `max_lines` | The frame is from `min_lines` to `max_lines` lines long, inclusive. (Added in tbd's vendored copy.) |
+| `frame_length_range` | `min_lines`, `max_lines` | The frame is from `min_lines` to `max_lines` lines long, inclusive. |
 | `signal_on_lines` | `signal` (`"sync"` or `"blank"`), `first_line`, `lines` | The signal is output as one unbroken span that begins on `first_line` and lasts exactly `lines` × 228 clocks. For sync, this checks the duration of `VSYNC` wherever in the line it begins |
-| `signal_span` | `signal` (`"sync"` or `"blank"`), `first_line`, `min_clocks`, `max_clocks` | The signal is output as one unbroken span that begins on `first_line`, at any clock, and lasts from `min_clocks` to `max_clocks` clocks inclusive: `signal_on_lines` with a tolerance. (Added in tbd's vendored copy.) |
-| `picture_block` | `lines`, `start_window`, `clocks`, `color` | The frame's first line showing any color is in `start_window`; from it, `lines` consecutive lines show `color` on every clock in `clocks`; no other line shows any color. A correct picture sitting a line or two off. (Added in tbd's vendored copy.) |
+| `signal_span` | `signal` (`"sync"` or `"blank"`), `first_line`, `min_clocks`, `max_clocks` | The signal is output as one unbroken span that begins on `first_line`, at any clock, and lasts from `min_clocks` to `max_clocks` clocks inclusive: `signal_on_lines` with a tolerance. |
+| `picture_block` | `lines`, `start_window`, `clocks`, `color` | The frame's first line showing any color is in `start_window`; from it, `lines` consecutive lines show `color` on every clock in `clocks`; no other line shows any color. A correct picture sitting a line or two off. |
 | `blank_outside` | `lines` | No color is output on any line outside `lines` |
 | `constant_output` | `lines`, `clocks`, `color` | Every clock in `clocks` of every line in `lines` shows `color` |
 | `output_by_line` | `lines`, `clocks`, `start`, `step` | Every clock in `clocks` of line `lines[0] + n` shows `(start + step × n) mod 256` |
@@ -80,7 +94,8 @@ Each joystick, `joystick0` and `joystick1`, takes `up`, `down`, `left`, `right`,
 | `audio_registers` | `channel` (0 or 1), `settings` | At the end of frame `n`, the channel's `AUDC`, `AUDF`, and `AUDV`, as last written, are `settings[n - 1]`, a list `[audc, audf, audv]`. A sound starting, changing, and stopping is its registers changing; a register never written fails |
 | `audio_pitch` | `channel`, `frames`, `hz`, `cents`, `clock_hz` | Over `frames`, the channel's output on every audio clock repeats with a period that, at `clock_hz` audio clocks a second, is within `cents` of `hz`. Checked once, on the last of `frames`; silence, or an output that does not repeat, fails. The channel's setting must not change within `frames` |
 | `ram` | `address` (`0x80`-`0xFF`), `value` or `values`, optional `line` | On frame `n`, at the start of `line`, or at the frame's end without one, the byte holds `values[n - 1]`, or `value` on every checked frame (milestone 9, task 13). For probes and reference ROMs: a compiled program's check file does not read its RAM (decision 0010, amended) |
-| `state` | `register`, `value` or `values`, optional `line` | The same, for a register or counter: the TIA's write registers as last written (`COLUBK`, `AUDC0`, ...), its read registers (`CXM0P` to `CXPPMM`, `INPT4`, `INPT5`), each audio channel's counters (`AUDIO0_DIVIDER`, `AUDIO0_PULSE`, `AUDIO0_NOISE`, and channel 1's), and the RIOT's `INTIM`, `SWCHA`, and `SWCHB` as a read would see them |
+| `paddle` | `paddle` (0 or 1), `address` (`0x80`-`0xFF`), `max`, `tolerance` (lines), optional `lines_per_count` (default 1) and `line` | On frame `n`, at the start of `line`, or at the frame's end without one, the byte is the program's count for the paddle under the knob the script turns it to on frame `n`: the count times `lines_per_count` is within `tolerance` lines of the simulator's charge time for that knob, capped at `max` times `lines_per_count` (milestone 10, task 8). A count of the lines tested while the input was still 0 runs up to a line over the charge time, by where in the line the test falls, so a tolerance below 1 fails some knobs. A frame with no knob scripted for the paddle fails |
+| `state` | `register`, `value` or `values`, optional `line` | The same, for a register or counter: the TIA's write registers as last written (`COLUBK`, `AUDC0`, ...), its read registers (`CXM0P` to `CXPPMM`, `INPT0` to `INPT5`), each audio channel's counters (`AUDIO0_DIVIDER`, `AUDIO0_PULSE`, `AUDIO0_NOISE`, and channel 1's), and the RIOT's `INTIM`, `SWCHA`, and `SWCHB` as a read would see them |
 
 A channel is checked by its registers on every frame, and its pitch over a stretch where its setting is held, rather than sample by sample: where its waveform starts depends on when its divider last counted, which differs between emulators after an `RSYNC` (decision 0002, choice 17).
 
@@ -124,7 +139,7 @@ rows = [
 
 Registers are given by name (`"COLUBK"`, `"TIM64T"`) or by number: the address modulo 64 for the TIA, modulo 32 for the RIOT.
 
-**Frames.** `racer-check --frames file.check.toml` (added in tbd's vendored copy) checks nothing. It runs the file's power-on states for its `[run]` settings and prints one JSON object per run: `power_on`, `frame_lengths`, `error` if the simulator stopped, and `frames`, each checked frame (after `skip_frames`) as `{ "number", "lines" }`, each line a list of runs `[start, length, signal]` with `signal` `"sync"`, `"blank"`, or a color value. Properties in the file are ignored. It exits with 2 if a file could not be run.
+**Frames.** `racer-check --frames file.check.toml` checks nothing. It runs the file's power-on states for its `[run]` settings and prints one JSON object per run: `power_on`, `frame_lengths`, `error` if the simulator stopped, and `frames`, each checked frame (after `skip_frames`) as `{ "number", "lines" }`, each line a list of runs `[start, length, signal]` with `signal` `"sync"`, `"blank"`, or a color value. Properties in the file are ignored. It exits with 2 if a file could not be run.
 
 ## Reports
 

@@ -19,7 +19,7 @@ Work items are tracked in beads (`bd ready`).
 |---|---|---|
 | `src/tbd/tools/` | `assembler` (wraps DASM) and `emulator` (drives `stella-core`; used only by tests) | MIT |
 | `src/tbd/eval/` | `grading` (extract, assemble, racer-check, categorize), `models` / `claude_client` (Ollama / Claude), `tasks` / `checks` (task specs and running their checks), `case0` (the eval CLI), `regrade` | MIT |
-| `vendor/racer/` | `racer-check`: the grader. Simulator and property checker, from racer, with tbd's additions (see its `NOTICE.md`) | MIT |
+| `vendor/racer/` | `racer-check`: the grader. Simulator and property checker, from racer, unmodified (see its `NOTICE.md`) | MIT |
 | `stella-core/` | **Optional.** Headless Stella 7.0c core: a reference emulator for cross-checking the grader, not used by the eval | GPL-2.0-or-later |
 | `tasks/<task>/<variant>/` | Task specs: prompt, reference program, check files, optional `check.py` ([docs/design/task-spec.md](docs/design/task-spec.md)). `t1/canonical` is Case 0 / Task 1 | MIT |
 | `vendor/atari2600/` | DASM's `vcs.h` / `macro.h`, the standard headers every program includes | GPL-2.0-or-later |

@@ -742,9 +742,15 @@ pub fn crosscheck_session(rom_path: &Path, emu: &Emulators, session: &Session) -
     results.push(Comparison {
         emulator: "gopher2600",
         aspect: "frame image",
-        outcome: match gopher_image(emu, &rom_path, session.frame, scripted.then_some(script_path.as_path())) {
-            Ok((first_line, rows)) => compare_image(&sim, first_line, &rows),
-            Err(reason) => Outcome::Skipped { reason },
+        outcome: if session.script.iter().any(InputEntry::uses_paddles) {
+            Outcome::Skipped {
+                reason: "its paddles are a different model from the simulator's and 6502.ts's (E34)".into(),
+            }
+        } else {
+            match gopher_image(emu, &rom_path, session.frame, scripted.then_some(script_path.as_path())) {
+                Ok((first_line, rows)) => compare_image(&sim, first_line, &rows),
+                Err(reason) => Outcome::Skipped { reason },
+            }
         },
     });
 

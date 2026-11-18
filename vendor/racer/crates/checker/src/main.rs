@@ -5,7 +5,7 @@
 //! JSON report per line. Exits with status 0 if every file passed, 1 if any
 //! failed, and 2 if a file could not be checked.
 //!
-//! With `--frames` (added in tbd's vendored copy), checks nothing: prints
+//! With `--frames`, checks nothing: prints
 //! each run of each file as video, one JSON object per line (see
 //! `racer_checker::frames`). Exits with status 2 if a file could not be run.
 

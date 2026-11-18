@@ -131,7 +131,7 @@ class Racer:
         `frame_lengths`, `frames` (after `skip_frames`: `{number, lines}`,
         each line runs `[start, length, signal]`, signal "sync", "blank" or
         a color) and `error` if the simulator stopped. Saved, gzipped, as
-        frames.jsonl.gz (racer-check --frames, tbd's addition)."""
+        frames.jsonl.gz (racer-check --frames)."""
         name = self._save_name("frames")
         toml = with_rom(f'rom = ""\n[run]\nframes = {frames}\nskip_frames = {skip_frames}\n'
                         f'zero = true\nrandom_seeds = {seeds}\n')

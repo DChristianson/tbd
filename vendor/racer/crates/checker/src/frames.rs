@@ -1,5 +1,5 @@
 //! `racer-check --frames`: a check file's runs as video, for tools that check
-//! output themselves. (Added in tbd's vendored copy.)
+//! output themselves, such as a Python script checking a model's program.
 //!
 //! Each run (the zero power-on state, then random seeds 1-N, as the check
 //! file's `[run]` says) is simulated as `check` would, with video recorded,
@@ -28,7 +28,14 @@ fn frame(f: &VideoFrame) -> Value {
     let lines: Vec<Value> = f
         .lines
         .iter()
-        .map(|l| Value::Array(l.runs.iter().map(|r| json!([r.start, r.length, signal(r.signal)])).collect()))
+        .map(|l| {
+            Value::Array(
+                l.runs
+                    .iter()
+                    .map(|r| json!([r.start, r.length, signal(r.signal)]))
+                    .collect(),
+            )
+        })
         .collect();
     json!({ "number": f.number, "lines": lines })
 }

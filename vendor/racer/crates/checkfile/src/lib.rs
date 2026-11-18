@@ -74,7 +74,13 @@ pub struct Note {
 /// What is held from frame `from` on, until the next entry: each joystick's
 /// controls (`up`, `down`, `left`, `right`, `fire`), and the console's
 /// switches (`reset`, `select`). What an entry does not name is released.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+///
+/// Paddles (milestone 10) are plugged into joystick 0's port: `paddle0` and
+/// `paddle1` turn a knob to a position from 0 to 1, which stays until a
+/// later entry turns it, and `paddle0_fire` and `paddle1_fire` press a
+/// button, released unless named. A paddle never turned is unplugged, and
+/// an entry cannot use joystick 0 and a paddle together.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct InputEntry {
     pub from: u64,
@@ -84,6 +90,21 @@ pub struct InputEntry {
     pub joystick1: Vec<String>,
     #[serde(default)]
     pub console: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paddle0: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paddle1: Option<f64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paddle0_fire: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paddle1_fire: bool,
+}
+
+impl InputEntry {
+    /// Whether the entry turns or presses a paddle.
+    pub fn uses_paddles(&self) -> bool {
+        self.paddle0.is_some() || self.paddle1.is_some() || self.paddle0_fire || self.paddle1_fire
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

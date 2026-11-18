@@ -1,6 +1,6 @@
-"""The vendored racer-check (vendor/racer/) and tbd's additions to it, using
-Task 1's reference. That every task's reference passes its own check is
-tests/test_tasks.py.
+"""The vendored racer-check (vendor/racer/) and the features tbd added to it,
+now upstream in racer, using Task 1's reference. That every task's
+reference passes its own check is tests/test_tasks.py.
 
 racer-check reads a check file whose `rom` path is relative to the check
 file, so each test assembles into a temp dir and writes its check file there
@@ -174,7 +174,7 @@ def _color_at(line, clock):
 
 
 def test_frames_export_agrees_with_the_check_file(tmp_path):
-    """racer-check --frames (tbd's addition) gives the same picture the check
+    """racer-check --frames gives the same picture the check
     file checks: 262-line frames, lines 40-231 red on every visible clock,
     nothing shown elsewhere."""
     from tbd.eval.checks import Racer

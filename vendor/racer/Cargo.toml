@@ -1,5 +1,5 @@
 # Vendored subset of racer (github.com/DChristianson/racer) at commit
-# b54543df61765b81d5e3fb5acf0e5eca3d2fad90: just enough to build racer-check.
+# 9cc7b1d8550427d224f52958ca83abaadacee4fb: just enough to build racer-check.
 # See NOTICE.md.
 [workspace]
 resolver = "2"
@@ -8,6 +8,7 @@ members = ["crates/sim", "crates/checkfile", "crates/checker"]
 [workspace.package]
 edition = "2021"
 publish = false
+license = "MIT"
 rust-version = "1.84"
 
 [profile.release]

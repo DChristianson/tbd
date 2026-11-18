@@ -15,7 +15,7 @@ pub fn names() -> Vec<String> {
         .map(|r| r.to_string())
         .collect();
     out.extend(TIA_READS.iter().map(|r| r.to_string()));
-    out.extend(["INPT4", "INPT5"].map(String::from));
+    out.extend(["INPT0", "INPT1", "INPT2", "INPT3", "INPT4", "INPT5"].map(String::from));
     for c in 0..2 {
         for counter in ["DIVIDER", "PULSE", "NOISE"] {
             out.push(format!("AUDIO{c}_{counter}"));

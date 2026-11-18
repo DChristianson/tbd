@@ -153,13 +153,13 @@ pub enum Kind {
     /// The frame is exactly `lines` lines long.
     FrameLength { lines: u32 },
     /// The frame is from `min_lines` to `max_lines` lines long, inclusive
-    /// (added in tbd's vendored copy, for a relaxed tier of checks).
+    /// (for a relaxed tier of checks).
     FrameLengthRange { min_lines: u32, max_lines: u32 },
     /// A block of `lines` consecutive lines whose clocks in `clocks` all show
     /// `color`, with no color on any other line. The block's first line, the
     /// frame's first line showing any color, must be in `start_window`. A
-    /// picture that is right but sits a line or two off (added in tbd's
-    /// vendored copy, for a relaxed tier of checks).
+    /// picture that is right but sits a line or two off (for a relaxed tier
+    /// of checks).
     PictureBlock {
         lines: u32,
         start_window: Span,
@@ -178,8 +178,7 @@ pub enum Kind {
     /// `signal` is output as one unbroken span, beginning on line
     /// `first_line` (at any clock) and lasting from `min_clocks` to
     /// `max_clocks` clocks, inclusive: `SignalOnLines` with a tolerance, for a
-    /// sync that starts a few cycles into its line (added in tbd's vendored
-    /// copy; see vendor/racer/NOTICE.md).
+    /// sync that starts a few cycles into its line.
     SignalSpan {
         signal: SignalName,
         first_line: u32,
@@ -283,6 +282,25 @@ pub enum Kind {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         values: Vec<u8>,
     },
+    /// A paddle's read value (milestone 10, task 8): on frame `n`, at the
+    /// start of `line`, or at the frame's end without one, `address`
+    /// (`$80`-`$FF`) holds the program's count for paddle `paddle`, 0 or 1,
+    /// under the knob the script turns it to on that frame. The count is
+    /// meant to be the lines the paddle's input took to charge, divided by
+    /// `lines_per_count`, and no more than `max`. It passes when the count
+    /// times `lines_per_count` is within `tolerance` lines of the
+    /// simulator's charge time for that knob, capped at `max` times
+    /// `lines_per_count`.
+    Paddle {
+        paddle: u8,
+        address: u16,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        line: Option<u32>,
+        #[serde(default = "one_line")]
+        lines_per_count: u32,
+        max: u8,
+        tolerance: f64,
+    },
     /// A register's or counter's value (milestone 9, task 13), named as
     /// [`crate::state::names`] lists them, at the same moments as `ram`'s.
     State {
@@ -316,6 +334,7 @@ impl Kind {
             Kind::AudioPitch { .. } => "audio_pitch",
             Kind::Ram { .. } => "ram",
             Kind::State { .. } => "state",
+            Kind::Paddle { .. } => "paddle",
         }
     }
 }
@@ -407,7 +426,16 @@ impl Property {
                     self.name()
                 ))
             }
-            Kind::Ram { address, .. } if !(0x80..=0xFF).contains(address) => {
+            Kind::Paddle { paddle, .. } if *paddle > 1 => Err(format!("{}: paddle {paddle}; give 0 or 1", self.name())),
+            Kind::Paddle {
+                lines_per_count,
+                tolerance,
+                ..
+            } if *lines_per_count == 0 || *tolerance < 0.0 => Err(format!(
+                "{}: give lines_per_count of at least 1, and a tolerance of at least 0",
+                self.name()
+            )),
+            Kind::Ram { address, .. } | Kind::Paddle { address, .. } if !(0x80..=0xFF).contains(address) => {
                 Err(format!("{}: address ${address:04x}; RAM is $80-$FF", self.name()))
             }
             Kind::State { register, .. } if !crate::state::names().iter().any(|n| n == register) => Err(format!(
@@ -496,7 +524,7 @@ impl Property {
     /// the frame's end; `None` for other properties too.
     pub fn state_line(&self) -> Option<Option<u32>> {
         match self.kind {
-            Kind::Ram { line, .. } | Kind::State { line, .. } => Some(line),
+            Kind::Ram { line, .. } | Kind::State { line, .. } | Kind::Paddle { line, .. } => Some(line),
             _ => None,
         }
     }
@@ -505,4 +533,8 @@ impl Property {
     pub fn on_frame(&self, n: u64) -> bool {
         self.on_frames.is_empty() || self.on_frames.iter().any(|s| s.contains(n as u32))
     }
+}
+
+fn one_line() -> u32 {
+    1
 }

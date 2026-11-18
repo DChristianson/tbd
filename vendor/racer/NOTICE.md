@@ -1,7 +1,7 @@
 # Vendored: racer-check
 
 From [racer](https://github.com/DChristianson/racer) (private), commit
-`b54543df61765b81d5e3fb5acf0e5eca3d2fad90` (`main`, 2026-11-04). MIT
+`9cc7b1d8550427d224f52958ca83abaadacee4fb` (`main`, 2026-11-17). MIT
 licensed, same author as tbd; see `LICENSE`.
 
 **What's here:** the three crates `racer-check` needs, each crate's
@@ -19,35 +19,29 @@ and `examples/` (they need racer's reference ROMs and ~600 MB of CPU test
 data); the `racer-crosscheck` binary (needs the other emulators). The
 `crosscheck` module stays in the checker library, unchanged.
 
-**Modified, four changes (2026-11-15, 2026-11-16).** Upstream racer has
-none of them yet (beads tbd-818.15, tbd-818.19). Otherwise unmodified.
+**Unmodified.** tbd's copy used to carry four local changes: the
+undocumented `LXA #imm` opcode, the property kinds `signal_span`,
+`frame_length_range` and `picture_block`, and `racer-check --frames`. Racer
+took all four in its PR #17, so they are now upstream and this copy matches
+racer at the commit above (beads tbd-818.15, tbd-818.19). Their documentation
+is in [checker.md](checker.md).
 
-1. `crates/sim/src/cpu.rs` adds the undocumented `LXA #imm` (`$AB`),
-   `A = X = (A | $EE) & imm` as Stella does it, because model-written
-   programs may use undocumented opcodes and the standard `CLEAN_START`
-   macro uses `lxa #0` (beads tbd-818.11).
-2. A new property kind, `signal_span` (`crates/checkfile/src/property.rs`,
-   `write.rs`, `crates/checker/src/check.rs`, documented in `checker.md`):
-   `signal_on_lines` with a tolerance on how long the signal lasts, so a
-   VSYNC that starts a few cycles into line 0 can pass.
-3. Two more property kinds for a relaxed tier of checks, in the same files:
-   `frame_length_range` (`min_lines`..`max_lines`) and `picture_block` (a
-   block of `lines` lines of one color starting within `start_window`,
-   blank elsewhere).
-4. `racer-check --frames` (`crates/checker/src/frames.rs`, `main.rs`, and
-   `pub mod frames` in `lib.rs`, documented in `checker.md`): runs a check
-   file's power-on states without checking anything and prints each run's
-   video as JSON, so tbd's task `check.py` files can check output in Python
-   (beads tbd-818.19). Checking is unchanged.
+The racer commit above also includes its milestone 10 work since the
+previously vendored commit (`b54543d`): paddles (`[[input]]` knob positions, the
+`paddle` property kind, `INPT0`-`INPT3`), missile 1, and the playfield's
+collisions. A random power-on state now also randomizes missile 1's
+position, drawn before player 1's, so the random values given to player 1,
+the ball and the audio counters differ from `b54543d`'s for the same seed.
 
-**Checked (2026-11-15):** at commit `59edc95`, the vendored `racer-check` and
-unmodified upstream `racer-check` (racer `b54543d`) give byte-identical
-`--json` reports on all 40 of racer's own reference check files, all passing
-(racer's `reference/` built with `DASM_INCLUDE` pointed at
-tbd's `vcs.h`/`macro.h`, now `vendor/atari2600`). The changes add capability without
-changing an existing result. The
-workspace `Cargo.toml` here is new, listing only these three crates. To update: copy the same files from a newer racer commit,
-update the commit above, and rebuild.
+**Checked (2026-11-18):** the `racer-check` built from this commit and the
+one built from the previous, modified copy give byte-identical `--json` and
+`--frames` output for every check file in `tasks/` against every task's
+reference program and each of its `broken/` programs (33 runs in each mode).
+
+The workspace `Cargo.toml` here is tbd's own, listing only these three
+crates. To update: copy the same files from a newer racer commit, update the
+commit here and in `Cargo.toml`, and rebuild. `cargo build` prunes the
+compiler's and superoptimizer's entries from the copied `Cargo.lock`.
 
 **Build:** `cargo build --release --manifest-path vendor/racer/Cargo.toml`
 gives `vendor/racer/target/release/racer-check`. Usage and the check-file

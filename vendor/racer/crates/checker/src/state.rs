@@ -27,8 +27,9 @@ impl Snapshot {
         for (address, name) in TIA_READS.iter().enumerate() {
             values.insert(name.to_string(), tia.read(address as u8));
         }
-        values.insert("INPT4".into(), tia.read(0x0C));
-        values.insert("INPT5".into(), tia.read(0x0D));
+        for n in 0..6u8 {
+            values.insert(format!("INPT{n}"), tia.read(0x08 + n));
+        }
         for (c, ch) in tia.audio.channels.iter().enumerate() {
             values.insert(format!("AUDIO{c}_DIVIDER"), ch.divider);
             values.insert(format!("AUDIO{c}_PULSE"), ch.pulse);
