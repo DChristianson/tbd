@@ -98,14 +98,31 @@ Grid cells then take that snapshot as an input.
 
 ## Model identity across runtimes
 
-A "model" in the grid is weights + quantization + runtime. The same model name
-on Ollama (GGUF q4) and on vLLM (fp16 or AWQ) is two different rows, and the
-results can differ. Each row records runtime, quantization and a weights
-hash. Using llama.cpp/GGUF on both Mac and cloud keeps rows comparable across
-machines. Larger cloud-only models (e.g. a ~27B) are simply new rows.
+A "model" in the grid is weights + quantization + runtime (decided in
+tbd-f78.2). The same weights served by Ollama and by vLLM are two different
+rows, because the runtime and the quantization can change the results. Each
+row records its runtime, its quantization and a hash of its weights. Larger
+cloud-only models (e.g. a ~27B) are simply new rows.
 
-Temperature 0 isn't bit-reproducible across GPUs either. Results are
-compared as pass@k over samples, never as single outputs.
+Within that, runs aim to be reproducible. Every request sends a seed (the
+job's seed plus the sample number), and each job records the seed and
+temperature it used. Where the same model runs on the Mac and in the cloud,
+both sides should use GGUF at the same quantization, so the two rows can be
+compared.
+
+A fixed seed still doesn't give identical output across GPUs or runtimes.
+Results are therefore compared as pass@k over samples, never as single
+outputs.
+
+There are two clients, one per kind of API:
+
+- **Ollama (on the Mac):** `models.ollama_chat` uses Ollama's own API. That
+  API is what exposes the thinking switch, the context window size, the
+  weights digest and the chat template, so the Mac client stays on it.
+- **OpenAI-compatible (in the cloud):** llama.cpp server and vLLM expose only
+  `/v1/chat/completions`. That API has no standard way to report the weights
+  hash or the chat template, so the pod records them itself when it starts
+  (for example, by hashing the GGUF file).
 
 ## Experiment definition
 
