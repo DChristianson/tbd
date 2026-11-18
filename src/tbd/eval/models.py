@@ -50,7 +50,10 @@ def ollama_chat(model: str, messages: list[dict], *, temperature: float, seed: i
         save_to.mkdir(parents=True, exist_ok=True)
         (save_to / "request.json").write_text(json.dumps(body, indent=2))
     content, thinking, chunks, final = [], [], 0, None
-    deadline = time.time() + timeout_s
+    # Monotonic, not wall-clock: the dev container's wall clock can be stepped
+    # forward by many minutes (e.g. after the Mac sleeps), which would end a
+    # request that has only run for seconds.
+    deadline = time.monotonic() + timeout_s
 
     def partial() -> dict:
         return {"message": {"role": "assistant", "content": "".join(content),
@@ -84,7 +87,7 @@ def ollama_chat(model: str, messages: list[dict], *, temperature: float, seed: i
                 if chunk.get("done"):
                     final = chunk
                     break
-                if time.time() > deadline:
+                if time.monotonic() > deadline:
                     raise RequestTimeout(f"deadline of {timeout_s:g}s passed after {chunks} chunks",
                                          partial())
     except (TimeoutError, OSError) as e:  # socket timeout, connection errors

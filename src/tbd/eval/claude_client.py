@@ -78,7 +78,7 @@ def claude_chat(model: str, messages: list[dict], *, max_tokens: int, effort: st
         (save_to / "request.json").write_text(json.dumps(body, indent=2))
 
     content, thinking, events = [], [], 0
-    deadline = time.time() + timeout_s
+    deadline = time.monotonic() + timeout_s
 
     def partial() -> dict:
         return {"message": {"role": "assistant", "content": "".join(content),
@@ -107,7 +107,7 @@ def claude_chat(model: str, messages: list[dict], *, max_tokens: int, effort: st
                         thinking.append(event.delta.thinking)
                 if events % 20 == 0:
                     flush()
-                if time.time() > deadline:
+                if time.monotonic() > deadline:
                     flush()
                     raise RequestTimeout(f"deadline of {timeout_s:g}s passed after {events} events",
                                         partial())
