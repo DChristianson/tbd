@@ -1,0 +1,27 @@
+# Task 1 baseline for qwen2.5-coder:14b on a RunPod serverless endpoint running
+# Ollama (tbd-f78.23): the same settings as t1-baseline.yaml, about 8x faster
+# than the Mac. The endpoint id and API key come from TBD_RUNPOD_ENDPOINT and
+# TBD_RUNPOD_API_KEY (environment or the gitignored .env.runpod); each job
+# records the endpoint as its model_host.
+#
+#   python -m tbd.eval.experiment experiments.d/t1-baseline-runpod.yaml --dry-run
+#   python -m tbd.eval.experiment experiments.d/t1-baseline-runpod.yaml
+experiment: t1-baseline-runpod
+
+models:
+  - { provider: runpod, model: "qwen2.5-coder:14b" }
+
+facts: [none]
+
+tasks:
+  - { id: t1, variants: all }
+
+modes: [one-shot, tool-feedback]
+
+samples: 3
+seed: 42
+temperature: 0.7
+num_ctx: 8192
+max_tokens: 4096
+retries: 3
+timeout: 900

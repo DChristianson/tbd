@@ -123,7 +123,8 @@ def job_settings(cfg: dict) -> dict:
            "fact_snapshot": str(snapshot)[:DIGEST_CHARS] if snapshot else None,
            "num_ctx": cfg.get("num_ctx"), "max_tokens": cfg.get("max_tokens"),
            "temperature": cfg.get("temperature"), "retries": cfg.get("retries"),
-           "effort": cfg.get("effort"), "think": think, **toolchain_settings(cfg)}
+           "effort": cfg.get("effort"), "think": think, "host": cfg.get("model_host"),
+           **toolchain_settings(cfg)}
     return {k: "-" if v is None else str(v) for k, v in raw.items()}
 
 
