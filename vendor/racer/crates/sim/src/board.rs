@@ -184,6 +184,7 @@ impl Board {
             // Drawn after the others, so their values are unchanged.
             board.tia.player0.counter = rng.byte() % 160;
             board.tia.missile0.counter = rng.byte() % 160;
+            board.tia.missile1.counter = rng.byte() % 160;
             board.tia.player1.counter = rng.byte() % 160;
             board.tia.ball.counter = rng.byte() % 160;
             for c in &mut board.tia.audio.channels {
@@ -235,11 +236,16 @@ impl Board {
     }
 
     /// Hold `input`, from now until it is changed: the RIOT's ports read its
-    /// lines, and the TIA its fire buttons.
+    /// lines, and the TIA its fire buttons and paddles.
     pub fn set_input(&mut self, input: Input) {
         self.controls = input.controls();
         for (n, j) in input.joysticks.iter().enumerate() {
             self.tia.set_fire(n, j.fire);
+        }
+        for (n, p) in input.paddles.iter().enumerate() {
+            if self.tia.paddles[n].full != p.ohms.map(crate::tia::charge_clocks) {
+                self.tia.set_paddle(n, p.ohms);
+            }
         }
     }
 

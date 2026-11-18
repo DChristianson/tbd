@@ -66,13 +66,13 @@ So, decided (beads `tbd-818.9`, `tbd-818.12`):
   Stella's. The eval doesn't use it, and the build skips it on request
   (`TBD_SKIP_STELLA=1`). Periodic Stella cross-checks of graded attempts:
   `tbd-818.16`.
-- **tbd adds to racer where the eval needs it**, in the vendored copy and
-  listed in its NOTICE: the undocumented `LXA` (`CLEAN_START` uses it, and
-  undocumented opcodes are allowed), and the property kinds `signal_span`,
-  `frame_length_range` and `picture_block` for tolerant VSYNC and the
-  relaxed (near-miss) tier. On all 40 of racer's own reference check files,
-  vendored and upstream `racer-check` give identical reports. Upstreaming:
-  `tbd-818.15`.
+- **tbd adds to racer where the eval needs it**, and upstreams each
+  addition to racer so the vendored copy stays unmodified. So far: the
+  undocumented `LXA` (`CLEAN_START` uses it, and undocumented opcodes are
+  allowed), the property kinds `signal_span`, `frame_length_range` and
+  `picture_block` for tolerant VSYNC and the relaxed (near-miss) tier, and
+  `racer-check --frames`. All of these are upstream as of racer PR #17
+  (`tbd-818.15`); see `vendor/racer/NOTICE.md`.
 
 What this changes for later tasks: the raster/frame-diff tool (Task 3) and
 joystick input (Tasks 7-8) come from racer's `image`, `object` and `[[input]]`

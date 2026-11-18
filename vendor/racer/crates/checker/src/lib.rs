@@ -13,7 +13,7 @@ pub use racer_checkfile::{property, CheckFile, InputEntry, RunConfig};
 
 use property::Property;
 use racer_sim::board::PowerOn;
-use racer_sim::input::{Entry, Input, Script};
+use racer_sim::input::{Entry, Input, Paddle, Script};
 use racer_sim::machine::Machine;
 use racer_sim::trace::TraceConfig;
 use serde::Serialize;
@@ -21,10 +21,42 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 /// The script a check file's input entries make.
+///
+/// Each entry is read in turn:
+///
+/// 1. Hold the joysticks' controls and the console's switches it names.
+/// 2. Turn each paddle it names to its knob, and keep every other paddle
+///    where the entry before left it.
+/// 3. Press the paddle buttons it names.
+///
+/// An entry that names joystick 0 while a paddle is plugged in is refused:
+/// both use the left port.
 pub fn script(entries: &[InputEntry]) -> Result<Script, String> {
     let mut out = Vec::new();
+    let mut paddles = [Paddle::default(); 2];
     for e in entries {
         let mut input = Input::default();
+        for (n, knob) in [e.paddle0, e.paddle1].into_iter().enumerate() {
+            if let Some(knob) = knob {
+                paddles[n] = Paddle::at(knob).map_err(|m| format!("input from frame {}: paddle {n}: {m}", e.from))?;
+            }
+        }
+        for (n, fire) in [e.paddle0_fire, e.paddle1_fire].into_iter().enumerate() {
+            paddles[n].fire = fire;
+            if fire && paddles[n].ohms.is_none() {
+                return Err(format!(
+                    "input from frame {}: paddle {n}'s button is pressed, but no entry has turned its knob: give paddle{n} a position",
+                    e.from
+                ));
+            }
+        }
+        input.paddles = paddles;
+        if !e.joystick0.is_empty() && paddles.iter().any(|p| p.ohms.is_some()) {
+            return Err(format!(
+                "input from frame {}: joystick 0 is held, but paddles are plugged into its port",
+                e.from
+            ));
+        }
         for (n, held) in [&e.joystick0, &e.joystick1].into_iter().enumerate() {
             for name in held {
                 input
@@ -119,6 +151,7 @@ pub fn check_run(machine: &mut Machine, config: &RunConfig, properties: &[Proper
         &machine.board.tia.frame_lengths,
         config.skip_frames,
         &snapshots,
+        machine.board.script.as_ref(),
     ))
 }
 

@@ -55,7 +55,7 @@ fn notes(out: &mut String, file: &CheckFile, here: impl Fn(usize) -> bool) {
 
 fn write_input(out: &mut String, entry: &InputEntry) {
     let _ = writeln!(out, "\n[[input]]\nfrom = {}", entry.from);
-    let nothing = entry.joystick1.is_empty() && entry.console.is_empty();
+    let nothing = entry.joystick1.is_empty() && entry.console.is_empty() && !entry.uses_paddles();
     if !entry.joystick0.is_empty() || nothing {
         let _ = writeln!(out, "joystick0 = {}", strings(&entry.joystick0));
     }
@@ -64,6 +64,17 @@ fn write_input(out: &mut String, entry: &InputEntry) {
     }
     if !entry.console.is_empty() {
         let _ = writeln!(out, "console = {}", strings(&entry.console));
+    }
+    for (n, knob, fire) in [
+        (0, entry.paddle0, entry.paddle0_fire),
+        (1, entry.paddle1, entry.paddle1_fire),
+    ] {
+        if let Some(knob) = knob {
+            let _ = writeln!(out, "paddle{n} = {knob:?}");
+        }
+        if fire {
+            let _ = writeln!(out, "paddle{n}_fire = true");
+        }
     }
 }
 
@@ -236,6 +247,25 @@ fn write_property(out: &mut String, property: &Property) {
         } => {
             field("register", format!("{register:?}"));
             state_fields(&mut field, *line, *value, values);
+        }
+        Kind::Paddle {
+            paddle,
+            address,
+            line,
+            lines_per_count,
+            max,
+            tolerance,
+        } => {
+            field("paddle", paddle.to_string());
+            field("address", format!("0x{address:02x}"));
+            if let Some(line) = line {
+                field("line", line.to_string());
+            }
+            if *lines_per_count != 1 {
+                field("lines_per_count", lines_per_count.to_string());
+            }
+            field("max", max.to_string());
+            field("tolerance", format!("{tolerance:?}"));
         }
     }
 }

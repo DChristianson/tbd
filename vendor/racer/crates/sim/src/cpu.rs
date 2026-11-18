@@ -1,7 +1,6 @@
 //! The 6507 CPU: every documented NMOS 6502 instruction, cycle by cycle,
 //! plus the undocumented `LXA #imm` ($AB), which the standard `CLEAN_START`
-//! macro uses (tbd: undocumented opcodes are allowed in model-written
-//! programs; this was added in tbd's vendored copy, see vendor/racer/NOTICE.md).
+//! macro uses (`lxa #0`), so that programs written for DASM run as written.
 //!
 //! Each instruction is executed as the exact sequence of bus cycles the
 //! hardware performs, including the reads whose values are discarded ("dummy

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Check files: what the Racer-26 compiler predicts and the checker checks"
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 rust-version.workspace = true
 
 [dependencies]

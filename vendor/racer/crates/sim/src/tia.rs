@@ -1,16 +1,15 @@
 //! The TIA subset: the color clock counter, frames and lines, `WSYNC`,
 //! `VSYNC`, `VBLANK`, `COLUBK`, the playfield (`PF0`-`PF2`, `CTRLPF`,
 //! `COLUPF`, and in score mode `COLUP0` and `COLUP1`), players 0 and 1,
-//! missile 0, and the ball (`GRP0`, `GRP1`, `ENAM0`, `ENABL`, `NUSIZ0`'s
-//! missile width, `CTRLPF`'s ball width, `COLUP0`, `COLUP1`, `COLUPF`,
-//! `RESP0`, `RESP1`, `RESM0`, `RESBL`, `HMP0`, `HMP1`, `HMM0`, `HMBL`,
+//! missile 0, missile 1, and the ball (`GRP0`, `GRP1`, `ENAM0`, `ENAM1`, `ENABL`, `NUSIZ0`'s
+//! and `NUSIZ1`'s missile widths, `CTRLPF`'s ball width, `COLUP0`, `COLUP1`, `COLUPF`,
+//! `RESP0`, `RESP1`, `RESM0`, `RESM1`, `RESBL`, `HMP0`, `HMP1`, `HMM0`, `HMM1`, `HMBL`,
 //! `HMCLR`, `HMOVE`), the video output, the collision latches for those
-//! four objects, the fire buttons' inputs, `INPT4` and `INPT5`, and the
-//! audio channels (`audio.rs`).
+//! five objects and the playfield, the fire buttons' inputs, `INPT4` and `INPT5`,
+//! the paddles' inputs, `INPT0` to `INPT3`, and the audio channels (`audio.rs`).
 //!
-//! Writes to other registers are stored but have no effect: missile 1,
-//! player copies and stretching, reflection, vertical delay, the
-//! playfield's collisions, and the paddles come later. `HMOVE` is modeled as it is
+//! Writes to other registers are stored but have no effect:
+//! player copies and stretching, reflection, and vertical delay. `HMOVE` is modeled as it is
 //! conventionally used, strobed at the start of a line: movement ticks that
 //! would fall outside horizontal blank are not applied.
 //! Recording what the TIA does is the trace's job (`trace.rs`).
@@ -35,17 +34,21 @@ pub const PF0: u8 = 0x0D;
 pub const PF1: u8 = 0x0E;
 pub const PF2: u8 = 0x0F;
 pub const NUSIZ0: u8 = 0x04;
+pub const NUSIZ1: u8 = 0x05;
 pub const RESP0: u8 = 0x10;
 pub const RESP1: u8 = 0x11;
 pub const RESM0: u8 = 0x12;
+pub const RESM1: u8 = 0x13;
 pub const RESBL: u8 = 0x14;
 pub const GRP0: u8 = 0x1B;
 pub const GRP1: u8 = 0x1C;
 pub const ENAM0: u8 = 0x1D;
+pub const ENAM1: u8 = 0x1E;
 pub const ENABL: u8 = 0x1F;
 pub const HMP0: u8 = 0x20;
 pub const HMP1: u8 = 0x21;
 pub const HMM0: u8 = 0x22;
+pub const HMM1: u8 = 0x23;
 pub const HMBL: u8 = 0x24;
 pub const HMOVE: u8 = 0x2A;
 pub const HMCLR: u8 = 0x2B;
@@ -54,10 +57,15 @@ pub const CXCLR: u8 = 0x2C;
 /// Read registers, by address modulo 16. See `TIA-COLLIDE-1` and
 /// `TIA-INPUT-1`.
 pub const CXM0P: u8 = 0x00;
+pub const CXM1P: u8 = 0x01;
 pub const CXP0FB: u8 = 0x02;
 pub const CXP1FB: u8 = 0x03;
 pub const CXM0FB: u8 = 0x04;
+pub const CXM1FB: u8 = 0x05;
+pub const CXBLPF: u8 = 0x06;
 pub const CXPPMM: u8 = 0x07;
+pub const INPT0: u8 = 0x08;
+pub const INPT3: u8 = 0x0B;
 pub const INPT4: u8 = 0x0C;
 pub const INPT5: u8 = 0x0D;
 
@@ -217,10 +225,12 @@ pub struct Tia {
     pub grp0: u8,
     pub grp1: u8,
     pub enam0: u8,
+    pub enam1: u8,
     pub enabl: u8,
     pub player0: Object,
     pub player1: Object,
     pub missile0: Object,
+    pub missile1: Object,
     pub ball: Object,
     /// Whether `HMOVE` has extended this line's horizontal blank by
     /// `HMOVE_BLANK_CLOCKS`.
@@ -237,6 +247,8 @@ pub struct Tia {
     /// Whether each fire button has been down since `VBLANK`'s latch bit
     /// was turned on.
     fire_latched: [bool; 2],
+    /// The paddles' inputs, `INPT0` to `INPT3`. See `TIA-INPUT-2`.
+    pub paddles: [Charge; 4],
     /// The audio channels. See `TIA-AUDIO-1`.
     pub audio: Audio,
     /// The sample the last color clock's audio clock produced, if it ended
@@ -275,16 +287,19 @@ impl Tia {
             grp0: registers[GRP0 as usize],
             grp1: registers[GRP1 as usize],
             enam0: registers[ENAM0 as usize],
+            enam1: registers[ENAM1 as usize],
             enabl: registers[ENABL as usize],
             player0: Object::new(Kind::Player, registers[HMP0 as usize]),
             player1: Object::new(Kind::Player, registers[HMP1 as usize]),
             missile0: Object::new(Kind::Missile, registers[HMM0 as usize]),
+            missile1: Object::new(Kind::Missile, registers[HMM1 as usize]),
             ball: Object::new(Kind::Ball, registers[HMBL as usize]),
             extended_hblank: false,
             motion_clock: None,
             collisions: [0; 8],
             fire: [false; 2],
             fire_latched: [false; 2],
+            paddles: [Charge::default(); 4],
             audio: {
                 let mut audio = Audio::default();
                 for r in crate::audio::AUDC0..=crate::audio::AUDV1 {
@@ -303,6 +318,24 @@ impl Tia {
         if down && self.latch_inputs() {
             self.fire_latched[n] = true;
         }
+    }
+
+    /// Turn paddle `n`'s knob to `ohms`, or unplug it with `None`. A
+    /// charge under way goes on at the new rate: the part of it done is
+    /// kept. See `TIA-INPUT-2`.
+    pub fn set_paddle(&mut self, n: usize, ohms: Option<u32>) {
+        let p = &mut self.paddles[n];
+        let full = ohms.map(charge_clocks);
+        p.charged = match (p.full, full) {
+            (Some(old), Some(new)) if old > 0 => (p.charged as u64 * new as u64 / old as u64) as u32,
+            _ => p.charged,
+        };
+        p.full = full;
+    }
+
+    /// Whether `VBLANK`'s bit 7 holds the paddles' capacitors dumped.
+    fn dumped(&self) -> bool {
+        self.registers[VBLANK as usize] & 0x80 != 0
     }
 
     /// Whether `VBLANK`'s bit 6 latches the fire buttons.
@@ -324,7 +357,13 @@ impl Tia {
                     0x80
                 }
             }
-            // The paddles' inputs, INPT0-INPT3, are not modeled (milestone 10).
+            r @ INPT0..=INPT3 => {
+                let p = &self.paddles[(r - INPT0) as usize];
+                match p.full {
+                    Some(full) if !self.dumped() && p.charged >= full => 0x80,
+                    _ => 0x00,
+                }
+            }
             _ => 0x00,
         }
     }
@@ -335,8 +374,13 @@ impl Tia {
     }
 
     /// The missile's width in clocks, from `NUSIZ0`. See `TIA-OBJ-2`.
-    fn missile_width(&self) -> i8 {
+    fn missile0_width(&self) -> i8 {
         1 << ((self.registers[NUSIZ0 as usize] >> 4) & 0x03)
+    }
+
+    /// The missile's width in clocks, from `NUSIZ1`. See `TIA-OBJ-2`.
+    fn missile1_width(&self) -> i8 {
+        1 << ((self.registers[NUSIZ1 as usize] >> 4) & 0x03)
     }
 
     /// The ball's width in clocks, from `CTRLPF`. See `TIA-OBJ-7`.
@@ -352,9 +396,11 @@ impl Tia {
         player || missile
     }
 
-    /// Whether player 1 draws a pixel at this clock. See `TIA-OBJ-1`.
-    fn player1_pixel(&self) -> bool {
-        self.player1.pixel().is_some_and(|n| self.grp1 & (0x80 >> n) != 0)
+    /// Whether player 1 or missile 1 draws a pixel at this clock. See `TIA-OBJ-1`/`TIA-OBJ-2`
+    fn object1_pixel(&self) -> bool {
+        let player = self.player1.pixel().is_some_and(|n| self.grp1 & (0x80 >> n) != 0);
+        let missile = self.missile1.pixel().is_some() && self.enam1 & 0x02 != 0;
+        player || missile
     }
 
     /// Whether the ball draws a pixel at this clock. See `TIA-OBJ-7`.
@@ -390,21 +436,21 @@ impl Tia {
                 (false, _) => COLUPF,
             });
         // Most clocks draw no object: then only the playfield can show.
-        let drawing = [&self.player0, &self.player1, &self.missile0, &self.ball]
+        let drawing = [&self.player0, &self.player1, &self.missile0, &self.missile1, &self.ball]
             .iter()
             .any(|o| o.render.is_some());
         if !drawing {
             return Signal::Color(self.registers[playfield.unwrap_or(COLUBK) as usize] & 0xFE);
         }
         let object0 = self.object0_pixel().then_some(COLUP0);
-        let player1 = self.player1_pixel().then_some(COLUP1);
+        let object1 = self.object1_pixel().then_some(COLUP1);
         let ball = self.ball_pixel().then_some(COLUPF);
         let register = if playfield_priority {
-            playfield.or(ball).or(object0).or(player1)
+            playfield.or(ball).or(object0).or(object1)
         } else if score {
-            object0.or(playfield).or(player1).or(ball)
+            object0.or(playfield).or(object1).or(ball)
         } else {
-            object0.or(player1).or(playfield).or(ball)
+            object0.or(object1).or(playfield).or(ball)
         };
         Signal::Color(self.registers[register.unwrap_or(COLUBK) as usize] & 0xFE)
     }
@@ -468,10 +514,12 @@ impl Tia {
                 GRP0 => self.grp0 = value,
                 GRP1 => self.grp1 = value,
                 ENAM0 => self.enam0 = value,
+                ENAM1 => self.enam1 = value,
                 ENABL => self.enabl = value,
                 HMP0 => self.player0.motion = (value >> 4) ^ 8,
                 HMP1 => self.player1.motion = (value >> 4) ^ 8,
                 HMM0 => self.missile0.motion = (value >> 4) ^ 8,
+                HMM1 => self.missile1.motion = (value >> 4) ^ 8,
                 HMBL => self.ball.motion = (value >> 4) ^ 8,
                 HMCLR => {
                     for object in self.objects_mut() {
@@ -495,15 +543,24 @@ impl Tia {
     /// nothing with `VBLANK` on. See `TIA-COLLIDE-1` and `TIA-COLLIDE-2`.
     fn collide(&mut self) {
         let p0 = self.player0.pixel().is_some_and(|n| self.grp0 & (0x80 >> n) != 0);
-        let p1 = self.player1_pixel();
+        let p1 = self.player1.pixel().is_some_and(|n| self.grp1 & (0x80 >> n) != 0);
         let m0 = self.missile0.pixel().is_some() && self.enam0 & 0x02 != 0;
+        let m1 = self.missile1.pixel().is_some() && self.enam1 & 0x02 != 0;
         let bl = self.ball_pixel();
+        let pf: bool = self.playfield_pixel;
+
         let c = &mut self.collisions;
         if m0 && p1 {
             c[CXM0P as usize] |= 0x80;
         }
         if m0 && p0 {
             c[CXM0P as usize] |= 0x40;
+        }
+        if m1 && p1 {
+            c[CXM1P as usize] |= 0x40;
+        }
+        if m1 && p0 {
+            c[CXM1P as usize] |= 0x80;
         }
         if p0 && bl {
             c[CXP0FB as usize] |= 0x40;
@@ -514,20 +571,47 @@ impl Tia {
         if m0 && bl {
             c[CXM0FB as usize] |= 0x40;
         }
+        if m1 && bl {
+            c[CXM1FB as usize] |= 0x40;
+        }
         if p0 && p1 {
             c[CXPPMM as usize] |= 0x80;
         }
+        if m0 && m1 {
+            c[CXPPMM as usize] |= 0x40;
+        }
+        if p0 && pf {
+            c[CXP0FB as usize] |= 0x80;
+        }
+        if p1 && pf {
+            c[CXP1FB as usize] |= 0x80;
+        }
+        if m0 && pf {
+            c[CXM0FB as usize] |= 0x80;
+        }
+        if m1 && pf {
+            c[CXM1FB as usize] |= 0x80;
+        }
+        if bl && pf {
+            c[CXBLPF as usize] |= 0x80;
+        }
     }
 
-    /// The objects, in a fixed order: player 0, player 1, missile 0, and
+    /// The objects, in a fixed order: player 0, player 1, missile 0, missile 1, and
     /// the ball.
-    fn objects_mut(&mut self) -> [&mut Object; 4] {
-        [&mut self.player0, &mut self.player1, &mut self.missile0, &mut self.ball]
+    fn objects_mut(&mut self) -> [&mut Object; 5] {
+        [
+            &mut self.player0,
+            &mut self.player1,
+            &mut self.missile0,
+            &mut self.missile1,
+            &mut self.ball,
+        ]
     }
 
     /// Each object's width in clocks, in the order of `objects_mut`.
-    fn widths(&self) -> [i8; 4] {
-        [8, 8, self.missile_width(), self.ball_width()]
+    fn widths(&self) -> [i8; 5] {
+        [8, 8, self.missile0_width(), self.missile1_width(), self.ball_width()]
     }
 
     /// Tick the objects: once per visible clock, and, during an `HMOVE`,
@@ -572,13 +656,20 @@ impl Tia {
         self.sample = self.audio.clock(self.clock);
         if !self.hblank()
             && !self.vblank()
-            && [&self.player0, &self.player1, &self.missile0, &self.ball]
+            && [&self.player0, &self.player1, &self.missile0, &self.missile1, &self.ball]
                 .iter()
                 .any(|o| o.render.is_some())
         {
             self.collide();
         }
         self.tick_objects();
+        if !self.dumped() {
+            for p in &mut self.paddles {
+                if p.full.is_some_and(|full| p.charged < full) {
+                    p.charged += 1;
+                }
+            }
+        }
         if !self.playfield_pending.is_empty() || !self.pending.is_empty() {
             for (left, _, _) in self.playfield_pending.iter_mut().chain(self.pending.iter_mut()) {
                 *left = left.saturating_sub(1);
@@ -614,23 +705,24 @@ impl Tia {
                 self.audio.write(register, value);
             }
             CXCLR => self.collisions = [0; 8],
-            // The latch off releases it; on, it holds a button already down.
-            VBLANK if !self.latch_inputs() => self.fire_latched = [false; 2],
-            VBLANK => {
-                for n in 0..2 {
-                    self.fire_latched[n] |= self.fire[n];
+            VBLANK if value & 0x80 != 0 => {
+                for p in &mut self.paddles {
+                    p.charged = 0;
                 }
+                self.latch_fire();
             }
+            VBLANK => self.latch_fire(),
             PF0 | PF1 | PF2 => self.playfield_pending.push((PF_WRITE_DELAY, register, value)),
-            GRP0 | GRP1 | ENAM0 | ENABL => self.pending.push((OBJECT_WRITE_DELAY, register, value)),
-            HMP0 | HMP1 | HMM0 | HMBL | HMCLR => self.pending.push((HM_WRITE_DELAY, register, value)),
+            GRP0 | GRP1 | ENAM0 | ENAM1 | ENABL => self.pending.push((OBJECT_WRITE_DELAY, register, value)),
+            HMP0 | HMP1 | HMM0 | HMM1 | HMBL | HMCLR => self.pending.push((HM_WRITE_DELAY, register, value)),
             HMOVE => self.pending.push((HMOVE_DELAY, register, value)),
-            RESP0 | RESP1 | RESM0 | RESBL => {
+            RESP0 | RESP1 | RESM0 | RESM1 | RESBL => {
                 let v = self.reset_value();
                 match register {
                     RESP0 => self.player0.reset(v),
                     RESP1 => self.player1.reset(v),
                     RESM0 => self.missile0.reset(v),
+                    RESM1 => self.missile1.reset(v),
                     _ => self.ball.reset(v),
                 }
             }
@@ -643,6 +735,18 @@ impl Tia {
         Event::None
     }
 
+    /// `VBLANK` has been written: its latch bit off releases the fire
+    /// buttons; on, it holds a button already down.
+    fn latch_fire(&mut self) {
+        if !self.latch_inputs() {
+            self.fire_latched = [false; 2];
+        } else {
+            for n in 0..2 {
+                self.fire_latched[n] |= self.fire[n];
+            }
+        }
+    }
+
     /// `VSYNC` has turned on: the current line is line 0 of a new frame.
     /// See `TIA-FRAME-1`.
     fn start_frame(&mut self) {
@@ -652,4 +756,40 @@ impl Tia {
         self.frame += 1;
         self.line = 0;
     }
+}
+
+/// A paddle's input: how long its capacitor takes to charge, and how long
+/// it has charged. See `TIA-INPUT-2`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Charge {
+    /// The color clocks it takes to charge, from the knob, or `None` with
+    /// no paddle plugged in.
+    pub full: Option<u32>,
+    /// The color clocks it has charged since `VBLANK`'s bit 7 was last on.
+    pub charged: u32,
+}
+
+/// The lines a paddle with its knob turned all the way takes to charge:
+/// 6502.ts's `LINES_FULL`, measured by `probe-paddles` (E34). Stella uses
+/// 379, which is at most a line less over the knob.
+pub const CHARGE_LINES_FULL: u64 = 380;
+
+/// The resistance in series with the knob, in ohms: 1.8 kΩ, so a knob at 0
+/// still takes most of a line.
+pub const SERIES_OHMS: u64 = 1_800;
+
+/// The color clocks a paddle at `ohms` takes to charge until its input
+/// reads 1, as Stella and 6502.ts model it:
+///
+/// 1. Take the full knob's time, [`CHARGE_LINES_FULL`] lines.
+/// 2. Scale it by this knob's resistance plus the series resistor, over the
+///    full knob's plus the series resistor: the capacitor charges through
+///    both, and reaches the same voltage in a time in proportion to them.
+///
+/// The result is rounded to the nearest clock: a knob at 0.5 is 190.3
+/// lines, 43,398 clocks.
+pub fn charge_clocks(ohms: u32) -> u32 {
+    let full = CHARGE_LINES_FULL * CLOCKS_PER_LINE as u64;
+    let total = crate::input::KNOB_OHMS as u64 + SERIES_OHMS;
+    ((full * (ohms as u64 + SERIES_OHMS) + total / 2) / total) as u32
 }

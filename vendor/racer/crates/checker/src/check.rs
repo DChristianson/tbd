@@ -1,7 +1,8 @@
 //! Checking properties against a trace.
 
 use crate::property::{register_name, resolve, Kind, Property};
-use racer_sim::tia::{Signal, CLOCKS_PER_LINE, HBLANK_CLOCKS};
+use racer_sim::input::Script;
+use racer_sim::tia::{charge_clocks, Signal, CLOCKS_PER_LINE, HBLANK_CLOCKS};
 use racer_sim::trace::{Chip, Trace, VideoFrame, VideoLine};
 use serde::Serialize;
 use std::fmt;
@@ -113,6 +114,73 @@ fn check_state(
     }
 }
 
+/// A paddle property on frame `number`: the count its snapshot holds,
+/// against the lines the frame's scripted knob takes to charge.
+///
+/// 1. Find the knob the script turns paddle `paddle` to on this frame.
+/// 2. Take the simulator's charge time for it in lines, capped at the most
+///    the count can say, `max` × `lines_per_count`.
+/// 3. Read the count from RAM, and scale it back to lines.
+///
+/// It misses when the two are more than `tolerance` lines apart, or when the
+/// script has no paddle there.
+fn check_paddle(
+    property: &Property,
+    number: u64,
+    script: Option<&Script>,
+    snapshots: &[crate::state::Snapshot],
+) -> Option<Miss> {
+    let Kind::Paddle {
+        paddle,
+        address,
+        line,
+        lines_per_count,
+        max,
+        tolerance,
+    } = &property.kind
+    else {
+        unreachable!("a paddle property")
+    };
+    let when = match line {
+        Some(l) => format!("at the start of line {l}"),
+        None => "at the end of the frame".into(),
+    };
+    let miss = |observed: String, required: String| {
+        Some(Miss {
+            line: *line,
+            clock: None,
+            observed,
+            required,
+        })
+    };
+    let Some(ohms) = script.and_then(|s| s.input(number).paddles[*paddle as usize].ohms) else {
+        return miss(
+            format!("no knob scripted for paddle {paddle}"),
+            "a script that turns its knob".into(),
+        );
+    };
+    let cap = f64::from(*max) * f64::from(*lines_per_count);
+    let charge = (f64::from(charge_clocks(ohms)) / f64::from(CLOCKS_PER_LINE)).min(cap);
+    let Some(count) = snapshots
+        .iter()
+        .find(|s| s.frame == number && s.line == *line)
+        .map(|s| s.ram[(*address & 0x7F) as usize])
+    else {
+        return miss(
+            format!("no state recorded {when}"),
+            format!("${address:02x} holding a count"),
+        );
+    };
+    let read = f64::from(count) * f64::from(*lines_per_count);
+    let knob = f64::from(ohms) / f64::from(racer_sim::input::KNOB_OHMS);
+    ((read - charge).abs() > *tolerance).then(|| Miss {
+        line: *line,
+        clock: None,
+        observed: format!("{when}, ${address:02x} holds {count}, {read} lines"),
+        required: format!("within {tolerance} lines of {charge:.1}, paddle {paddle}'s charge at knob {knob}"),
+    })
+}
+
 /// Check `properties` against the frames of `trace` and the frame lengths
 /// in `frame_lengths`, skipping the first `skip` frames. Frames are numbered
 /// from 1, at the first `VSYNC`. Returns the failures, one per failing
@@ -123,6 +191,7 @@ pub fn check(
     frame_lengths: &[u32],
     skip: usize,
     snapshots: &[crate::state::Snapshot],
+    script: Option<&Script>,
 ) -> Vec<Failure> {
     let mut failures = Vec::new();
     for property in properties {
@@ -167,6 +236,7 @@ pub fn check(
                 | Kind::State {
                     line, value, values, ..
                 } => check_state(property, number, *line, *value, values, snapshots),
+                Kind::Paddle { .. } => check_paddle(property, number, script, snapshots),
                 _ => match trace.frames.iter().find(|f| f.number == number) {
                     Some(frame) => check_frame(property, properties, frame, trace),
                     None if property.needs_video() => Some(Miss {
@@ -302,9 +372,11 @@ fn check_frame(property: &Property, properties: &[Property], frame: &VideoFrame,
     let lines = &frame.lines;
     match &property.kind {
         // Checked against the frame length, or the state, by `check`.
-        Kind::FrameLength { .. } | Kind::FrameLengthRange { .. } | Kind::Ram { .. } | Kind::State { .. } => {
-            None
-        }
+        Kind::FrameLength { .. }
+        | Kind::FrameLengthRange { .. }
+        | Kind::Ram { .. }
+        | Kind::State { .. }
+        | Kind::Paddle { .. } => None,
 
         Kind::PictureBlock {
             lines: count,
@@ -318,7 +390,10 @@ fn check_frame(property: &Property, properties: &[Property], frame: &VideoFrame,
                     line: None,
                     clock: None,
                     observed: "no color on any line".into(),
-                    required: format!("{count} lines of {} starting on lines {start_window}", describe(Signal::Color(*color))),
+                    required: format!(
+                        "{count} lines of {} starting on lines {start_window}",
+                        describe(Signal::Color(*color))
+                    ),
                 });
             };
             let first = first as u32;
@@ -334,20 +409,30 @@ fn check_frame(property: &Property, properties: &[Property], frame: &VideoFrame,
                 start: first,
                 end: first + count,
             };
-            region_miss(lines, &block, clocks, |_| *color, &|_, _, _| false, "every clock of the picture")
-                .or_else(|| {
-                    lines.iter().enumerate().find_map(|(n, line)| {
-                        if block.contains(n as u32) {
-                            return None;
-                        }
-                        line.runs.iter().find(|r| matches!(r.signal, Signal::Color(_))).map(|r| Miss {
+            region_miss(
+                lines,
+                &block,
+                clocks,
+                |_| *color,
+                &|_, _, _| false,
+                "every clock of the picture",
+            )
+            .or_else(|| {
+                lines.iter().enumerate().find_map(|(n, line)| {
+                    if block.contains(n as u32) {
+                        return None;
+                    }
+                    line.runs
+                        .iter()
+                        .find(|r| matches!(r.signal, Signal::Color(_)))
+                        .map(|r| Miss {
                             line: Some(n as u32),
                             clock: Some(r.start),
                             observed: describe(r.signal),
                             required: format!("no color outside the picture, lines {block}"),
                         })
-                    })
                 })
+            })
         }
 
         Kind::SignalSpan {
@@ -591,11 +676,12 @@ fn check_frame(property: &Property, properties: &[Property], frame: &VideoFrame,
             let got: Vec<Option<u8>> = (0..3)
                 .map(|i| {
                     let reg = 0x15 + 2 * i + channel;
-                    trace
-                        .register_writes
+                    // Writes are in frame order, so skip the later frames'.
+                    let end = trace.register_writes.partition_point(|w| w.frame <= frame.number);
+                    trace.register_writes[..end]
                         .iter()
                         .rev()
-                        .find(|w| w.chip == Chip::Tia && w.register == reg && w.frame <= frame.number)
+                        .find(|w| w.chip == Chip::Tia && w.register == reg)
                         .map(|w| w.value)
                 })
                 .collect();

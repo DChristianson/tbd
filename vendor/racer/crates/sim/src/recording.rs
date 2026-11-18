@@ -112,6 +112,9 @@ impl Bus<Symbolic> for RecordingBus<'_> {
             Device::Ram(offset) => self.ram[offset].clone(),
             Device::Tia(r) if r & 0x0F == crate::tia::INPT4 => symbolic::var("inpt4"),
             Device::Tia(r) if r & 0x0F == crate::tia::INPT5 => symbolic::var("inpt5"),
+            Device::Tia(r) if (crate::tia::INPT0..=crate::tia::INPT3).contains(&(r & 0x0F)) => {
+                symbolic::var(&format!("inpt{}", (r & 0x0F) - crate::tia::INPT0))
+            }
             Device::Tia(_) => {
                 self.tia_reads += 1;
                 symbolic::var(&format!("tia{}", self.tia_reads))
