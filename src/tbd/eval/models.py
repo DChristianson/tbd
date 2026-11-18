@@ -15,6 +15,10 @@ from pathlib import Path
 OLLAMA = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 MAX_OUTPUT_TOKENS = 4096   # includes a reasoning model's thinking
 REQUEST_TIMEOUT_S = 600
+# Longest silence allowed from Ollama. The first byte only arrives once the
+# model is loaded, and Ollama may first have to finish with and unload another
+# model, so this must cover a cold load and a wait in Ollama's queue.
+IDLE_TIMEOUT_S = 300
 
 
 class RequestTimeout(Exception):
@@ -28,11 +32,13 @@ class RequestTimeout(Exception):
 def ollama_chat(model: str, messages: list[dict], *, temperature: float, seed: int,
                 think: bool | None, max_tokens: int = MAX_OUTPUT_TOKENS,
                 num_ctx: int | None = None, timeout_s: float = REQUEST_TIMEOUT_S,
-                save_to: Path | None = None) -> dict:
+                idle_timeout_s: float = IDLE_TIMEOUT_S, save_to: Path | None = None) -> dict:
     """Streamed chat request. Every chunk is appended to stream.jsonl as it
     arrives, and response.md / thinking.md grow with it, so a timeout or an
     interruption keeps everything generated so far. `timeout_s` is a total
-    wall-clock deadline for the whole request."""
+    wall-clock deadline for the whole request. `idle_timeout_s` bounds a silent
+    server: the wait for any one read, including the wait for the first token
+    while the model loads."""
     # The context window must hold the conversation plus the whole output.
     num_ctx = num_ctx or max(16384, max_tokens + 4096)
     body = {"model": model, "messages": messages, "stream": True,
@@ -61,8 +67,9 @@ def ollama_chat(model: str, messages: list[dict], *, temperature: float, seed: i
                                  headers={"Content-Type": "application/json"})
     stream_log = open(save_to / "stream.jsonl", "a") if save_to else None
     try:
-        # Socket timeout bounds a silent server; the loop enforces the deadline.
-        with urllib.request.urlopen(req, timeout=max(1.0, min(timeout_s, 60))) as r:
+        # The socket timeout bounds a silent server; the loop enforces the deadline.
+        socket_timeout = max(1.0, min(timeout_s, idle_timeout_s))
+        with urllib.request.urlopen(req, timeout=socket_timeout) as r:
             for line in r:
                 if stream_log:
                     stream_log.write(line.decode())

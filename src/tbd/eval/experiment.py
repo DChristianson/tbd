@@ -15,8 +15,8 @@ The definition (docs/design/execution.md, "Experiment definition"):
       - { id: t1, variants: all }  # all = every tasks/t1/<variant>/ with a prompt.txt
     modes: [one-shot, tool-feedback]
     samples: 3                     # settings: samples, seed, temperature, retries,
-    seed: 42                       #   max_tokens, num_ctx, timeout, think, effort;
-    temperature: 0.7               #   unset ones take case0's defaults
+    seed: 42                       #   max_tokens, num_ctx, timeout, idle_timeout,
+    temperature: 0.7               #   think, effort; unset ones take case0's defaults
 
 The cartesian product models x facts x tasks/variants x modes is one case0 job
 each, run one at a time (local Ollama) in that order, so a model stays loaded
@@ -66,7 +66,7 @@ PROVIDERS = ("ollama", "anthropic")
 # Definition key -> case0 flag. Each may be set at the top level or per model.
 SETTINGS = {"samples": "--samples", "seed": "--seed", "temperature": "--temperature",
             "retries": "--retries", "max_tokens": "--max-tokens", "num_ctx": "--num-ctx",
-            "timeout": "--timeout", "think": "--think", "effort": "--effort"}
+            "timeout": "--timeout", "idle_timeout": "--idle-timeout", "think": "--think", "effort": "--effort"}
 TOP_KEYS = {"experiment", "models", "facts", "tasks", "modes", *SETTINGS}
 MODEL_KEYS = {"provider", "model", *SETTINGS}
 TASK_KEYS = {"id", "variants"}
@@ -227,7 +227,8 @@ def expected_config(job: Job) -> dict:
             "retries": ns.retries if job.mode == "tool-feedback" else 0,
             "max_tokens": max_tokens,
             "num_ctx": None if api else (ns.num_ctx or max(16384, max_tokens + 4096)),
-            "request_timeout_s": ns.timeout}
+            "request_timeout_s": ns.timeout,
+            "idle_timeout_s": None if api else ns.idle_timeout}
 
 
 def job_state(job: Job, exp_dir: Path) -> tuple[str, str]:
