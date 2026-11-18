@@ -14,7 +14,7 @@ from tbd.eval.models import RequestTimeout, ollama_chat
 
 @pytest.fixture
 def silent_ollama(monkeypatch):
-    """An /api/chat server that waits `delay` seconds, then streams one chunk."""
+    """An /api/chat server that waits `delay` seconds, then streams two chunks."""
     state = {"delay": 0.0}
 
     class Handler(BaseHTTPRequestHandler):
@@ -23,8 +23,9 @@ def silent_ollama(monkeypatch):
             time.sleep(state["delay"])
             self.send_response(200)
             self.end_headers()
-            done = {"message": {"content": "ok"}, "done": True, "done_reason": "stop"}
-            self.wfile.write(json.dumps(done).encode() + b"\n")
+            part = {"message": {"content": "o"}, "done": False}
+            done = {"message": {"content": "k"}, "done": True, "done_reason": "stop"}
+            self.wfile.write(json.dumps(part).encode() + b"\n" + json.dumps(done).encode() + b"\n")
 
         def log_message(self, *args):
             pass
@@ -54,6 +55,20 @@ def test_silence_longer_than_the_idle_timeout_is_a_timeout(silent_ollama):
         chat(timeout_s=30, idle_timeout_s=1)
     assert time.time() - start < 2.5
     assert e.value.partial["chunks"] == 0
+
+
+def test_a_wall_clock_jump_is_not_a_timeout(silent_ollama, monkeypatch):
+    # The dev container's wall clock can be stepped forward mid-request.
+    real, calls = time.time, []
+
+    def jumps_after_first_call():
+        calls.append(1)
+        return real() + (3600 if len(calls) > 1 else 0)
+
+    monkeypatch.setattr(time, "time", jumps_after_first_call)
+    silent_ollama["delay"] = 0.5
+    resp = chat(timeout_s=30, idle_timeout_s=5)
+    assert resp["message"]["content"] == "ok"
 
 
 def test_idle_timeout_is_capped_at_the_request_timeout(silent_ollama):

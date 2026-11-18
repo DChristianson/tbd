@@ -107,7 +107,7 @@ def run_job(args, sample: int, job_dir: Path, log, on_attempt=None) -> dict:
     messages = [{"role": "user", "content": first_message(args)}]
     budget = 1 if args.mode == "one-shot" else 1 + args.retries
     for attempt_no in range(1, budget + 1):
-        t0 = time.time()
+        t0 = time.monotonic()
         workdir = job_dir / f"sample-{sample:02d}" / f"attempt-{attempt_no}"
         try:
             resp = chat(args, messages, seed, workdir)
@@ -115,7 +115,7 @@ def run_job(args, sample: int, job_dir: Path, log, on_attempt=None) -> dict:
             resp = {**e.partial, "error": str(e)}
             workdir.mkdir(parents=True, exist_ok=True)
             (workdir / "error.txt").write_text(resp["error"] + "\n")
-        wall_ms = int((time.time() - t0) * 1000)
+        wall_ms = int((time.monotonic() - t0) * 1000)
         text = resp.get("message", {}).get("content", "")
         thinking = resp.get("message", {}).get("thinking", "")
         code = extract_code(text)
@@ -313,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
 def run_cell(args, exp_id: str, job_id: str, job_dir: Path) -> int:
     """Run the job's samples, keeping metrics.json current."""
     print(f"{exp_id}/{job_id}: {args.samples} samples -> {job_dir}", flush=True)
-    t0 = time.time()
+    t0 = time.monotonic()
     results: list[dict] = []
     status = "running"
     write_metrics(job_dir, args, results, status, t0)
@@ -376,7 +376,7 @@ def write_metrics(job_dir: Path, args, results: list[dict], status: str, t0: flo
         "first_attempt_categories": firsts,
         "near_misses": sum(bool(r.get("near_miss")) for r in results),
         "attempts_total": sum(r["attempts"] for r in results),
-        "wall_s": round(time.time() - t0, 1),
+        "wall_s": round(time.monotonic() - t0, 1),
         # Heartbeat: a "running" job whose updated_at stops moving, or whose pid is
         # gone, was killed without the chance to say so (tbd.eval.report.stale_reason).
         "pid": os.getpid(), "host": socket.gethostname(),
