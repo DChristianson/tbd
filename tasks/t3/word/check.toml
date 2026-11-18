@@ -1,0 +1,104 @@
+# This file checks for a stable NTSC frame showing the word RACER, each row in its own color.
+# To run it on the reference:
+#   cd tasks/t3/word && dasm reference.asm -f3 -I../../../vendor/atari2600 -obuild/reference.bin
+#   racer-check check.toml
+
+rom = "build/reference.bin"
+
+[run]
+frames = 100
+skip_frames = 1
+zero = true
+random_seeds = 100
+
+[[property]]
+kind = "frame_length"
+lines = 262
+
+# Graded: sync starts on line 0 and lasts 2-4 lines.
+[[property]]
+name = "vsync_span"
+kind = "signal_span"
+signal = "sync"
+first_line = 0
+min_clocks = 456
+max_clocks = 912
+
+# Not graded (see check.py): sync for exactly 3 lines from the start of line 0.
+[[property]]
+name = "vsync"
+kind = "signal_on_lines"
+signal = "sync"
+first_line = 0
+lines = 3
+
+[[property]]
+name = "blanking"
+kind = "blank_outside"
+lines = [40, 232]
+
+# The image: 12 rows of 16 lines, each as runs of [color, clocks].
+[[property]]
+name = "image"
+kind = "image"
+lines = [40, 232]
+clocks = [68, 228]
+rows = [
+    { lines = 16, runs = [[0x00, 160]] },
+    { lines = 16, runs = [[0x00, 160]] },
+    { lines = 16, runs = [[0x00, 160]] },
+    { lines = 16, runs = [[0x00, 12], [0x4e, 16], [0x00, 16], [0x4e, 12], [0x00, 16], [0x4e, 16], [0x00, 8], [0x4e, 20], [0x00, 8], [0x4e, 16], [0x00, 20]] },
+    { lines = 16, runs = [[0x00, 12], [0x4c, 4], [0x00, 12], [0x4c, 4], [0x00, 8], [0x4c, 4], [0x00, 12], [0x4c, 4], [0x00, 8], [0x4c, 4], [0x00, 24], [0x4c, 4], [0x00, 24], [0x4c, 4], [0x00, 12], [0x4c, 4], [0x00, 16]] },
+    { lines = 16, runs = [[0x00, 12], [0x4a, 16], [0x00, 12], [0x4a, 20], [0x00, 8], [0x4a, 4], [0x00, 24], [0x4a, 16], [0x00, 12], [0x4a, 16], [0x00, 20]] },
+    { lines = 16, runs = [[0x00, 12], [0x48, 4], [0x00, 8], [0x48, 4], [0x00, 12], [0x48, 4], [0x00, 12], [0x48, 4], [0x00, 8], [0x48, 4], [0x00, 24], [0x48, 4], [0x00, 24], [0x48, 4], [0x00, 8], [0x48, 4], [0x00, 20]] },
+    { lines = 16, runs = [[0x00, 12], [0x46, 4], [0x00, 12], [0x46, 4], [0x00, 8], [0x46, 4], [0x00, 12], [0x46, 4], [0x00, 12], [0x46, 16], [0x00, 8], [0x46, 20], [0x00, 8], [0x46, 4], [0x00, 12], [0x46, 4], [0x00, 16]] },
+    { lines = 16, runs = [[0x00, 160]] },
+    { lines = 16, runs = [[0x00, 160]] },
+    { lines = 16, runs = [[0x00, 160]] },
+    { lines = 16, runs = [[0x00, 160]] },
+]
+
+# Not graded (see check.py): when the reference writes this register.
+[[property]]
+name = "pf0_windows_40"
+kind = "write_window"
+chip = "tia"
+register = "PF0"
+lines = [40, 232]
+windows = [[79, 147], [159, 228]]
+
+# Not graded (see check.py): when the reference writes this register.
+[[property]]
+name = "pf1_windows_40"
+kind = "write_window"
+chip = "tia"
+register = "PF1"
+lines = [40, 41]
+windows = [[111, 163]]
+
+# Not graded (see check.py): when the reference writes this register.
+[[property]]
+name = "pf1_windows_41"
+kind = "write_window"
+chip = "tia"
+register = "PF1"
+lines = [41, 232]
+windows = [[0, 83], [111, 163]]
+
+# Not graded (see check.py): when the reference writes this register.
+[[property]]
+name = "pf2_windows_40"
+kind = "write_window"
+chip = "tia"
+register = "PF2"
+lines = [40, 41]
+windows = [[143, 195]]
+
+# Not graded (see check.py): when the reference writes this register.
+[[property]]
+name = "pf2_windows_41"
+kind = "write_window"
+chip = "tia"
+register = "PF2"
+lines = [41, 232]
+windows = [[0, 115], [143, 195]]

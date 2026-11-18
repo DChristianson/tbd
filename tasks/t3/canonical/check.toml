@@ -1,0 +1,61 @@
+# This file checks for a stable NTSC frame showing a checkerboard of 8 columns and
+# 12 rows, row r's colored cells in $16 + $10 * r and the others black.
+# To run it on the reference:
+#   cd tasks/t3/canonical && dasm reference.asm -f3 -I../../../vendor/atari2600 -obuild/reference.bin
+#   racer-check check.toml
+
+rom = "build/reference.bin"
+
+[run]
+frames = 100
+skip_frames = 1
+zero = true
+random_seeds = 100
+
+[[property]]
+kind = "frame_length"
+lines = 262
+
+# Graded: sync starts on line 0 and lasts 2-4 lines.
+[[property]]
+name = "vsync_span"
+kind = "signal_span"
+signal = "sync"
+first_line = 0
+min_clocks = 456
+max_clocks = 912
+
+# Not graded (see check.py): sync for exactly 3 lines from the start of line 0.
+[[property]]
+name = "vsync"
+kind = "signal_on_lines"
+signal = "sync"
+first_line = 0
+lines = 3
+
+[[property]]
+name = "blanking"
+kind = "blank_outside"
+lines = [40, 232]
+
+# The grid: 12 rows of 16 lines, each 8 cells of 20 clocks, as runs of
+# [color, clocks].
+[[property]]
+name = "grid"
+kind = "image"
+lines = [40, 232]
+clocks = [68, 228]
+rows = [
+    { lines = 16, runs = [[0x16, 20], [0x00, 20], [0x16, 20], [0x00, 20], [0x16, 20], [0x00, 20], [0x16, 20], [0x00, 20]] },
+    { lines = 16, runs = [[0x00, 20], [0x26, 20], [0x00, 20], [0x26, 20], [0x00, 20], [0x26, 20], [0x00, 20], [0x26, 20]] },
+    { lines = 16, runs = [[0x36, 20], [0x00, 20], [0x36, 20], [0x00, 20], [0x36, 20], [0x00, 20], [0x36, 20], [0x00, 20]] },
+    { lines = 16, runs = [[0x00, 20], [0x46, 20], [0x00, 20], [0x46, 20], [0x00, 20], [0x46, 20], [0x00, 20], [0x46, 20]] },
+    { lines = 16, runs = [[0x56, 20], [0x00, 20], [0x56, 20], [0x00, 20], [0x56, 20], [0x00, 20], [0x56, 20], [0x00, 20]] },
+    { lines = 16, runs = [[0x00, 20], [0x66, 20], [0x00, 20], [0x66, 20], [0x00, 20], [0x66, 20], [0x00, 20], [0x66, 20]] },
+    { lines = 16, runs = [[0x76, 20], [0x00, 20], [0x76, 20], [0x00, 20], [0x76, 20], [0x00, 20], [0x76, 20], [0x00, 20]] },
+    { lines = 16, runs = [[0x00, 20], [0x86, 20], [0x00, 20], [0x86, 20], [0x00, 20], [0x86, 20], [0x00, 20], [0x86, 20]] },
+    { lines = 16, runs = [[0x96, 20], [0x00, 20], [0x96, 20], [0x00, 20], [0x96, 20], [0x00, 20], [0x96, 20], [0x00, 20]] },
+    { lines = 16, runs = [[0x00, 20], [0xa6, 20], [0x00, 20], [0xa6, 20], [0x00, 20], [0xa6, 20], [0x00, 20], [0xa6, 20]] },
+    { lines = 16, runs = [[0xb6, 20], [0x00, 20], [0xb6, 20], [0x00, 20], [0xb6, 20], [0x00, 20], [0xb6, 20], [0x00, 20]] },
+    { lines = 16, runs = [[0x00, 20], [0xc6, 20], [0x00, 20], [0xc6, 20], [0x00, 20], [0xc6, 20], [0x00, 20], [0xc6, 20]] },
+]

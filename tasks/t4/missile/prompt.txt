@@ -1,0 +1,14 @@
+Create a kernel with stable framerate that draws a white ($0E) ship and a white ($0E) shot, each moving on its own, on a black background. Positions are those of an image's top-left corner: the left end of its top row is at pixel x (0-159, counting from the left edge) on visible line y (0-191, counting from the top). Frames are counted from 0, the first frame drawn. On frame f, the ship is at x = f mod 153, y = f mod 185, and the shot is at x = (100 + 2f) mod 159, y = (20 + 3f) mod 189. The shot is a solid rectangle 2 pixels wide and 4 lines tall.
+
+The ship is this image, where each row is one scanline, "#" is a pixel in the ship's color, and "." shows the background:
+
+    ...##...
+    ..####..
+    .######.
+    ########
+    ########
+    .######.
+    ..#..#..
+    .#....#.
+
+Target: Atari 2600, NTSC. Write 6502 assembly for the DASM assembler. The standard headers are available: include "vcs.h" and include "macro.h". Reply with the complete program in a single ```asm code block.
