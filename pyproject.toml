@@ -3,7 +3,8 @@ name = "tbd"
 version = "0.0.0"
 description = "Atari 2600 game synthesis agent with an attributed corpus and clean-room discovery loop"
 requires-python = ">=3.10"
-dependencies = []
+# PyYAML: experiment definitions (tbd.eval.experiment)
+dependencies = ["PyYAML>=6"]
 
 [project.optional-dependencies]
 test = ["pytest"]

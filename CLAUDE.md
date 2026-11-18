@@ -75,7 +75,9 @@ python -m pytest              # racer-check / stella-core tests skip if not buil
   racer-check check file, categorize. `models.py` / `claude_client.py` — the
   model clients. `tasks.py` / `checks.py` — task specs and running their
   checks. `facts.py` — the fact store (`facts/*.toml`, see facts/README.md). `case0.py` — the eval CLI (`--task`, `--variant`). `regrade.py` — re-grade
-  saved attempts. `report.py` — grid report over saved experiments.
+  saved attempts. `report.py` — grid report over saved experiments. `experiment.py` —
+  expand a YAML definition (`experiments.d/*.yaml`) into case0 jobs, run them,
+  resume.
 - `tasks/<task>/<variant>/` — prompt, reference program, check files, optional
   `check.py`; see docs/design/task-spec.md.
 - `vendor/` — racer-check (the grader) and DASM's headers. `stella-core/` —

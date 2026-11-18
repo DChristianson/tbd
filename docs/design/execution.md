@@ -34,7 +34,7 @@ fact-store snapshot, task, variant, mode, k, temperature, seed, retry budget).
 It's independent and repeatable, so it can run anywhere.
 
 `python -m tbd.eval.case0` runs one job and writes this layout (the YAML
-runner, below, will run many). Runs are never deleted or overwritten: if the
+runner, below, runs many). Runs are never deleted or overwritten: if the
 job folder already exists the run stops with an error; pick a new
 `--experiment`.
 
@@ -109,22 +109,58 @@ compared as pass@k over samples, never as single outputs.
 
 ## Experiment definition
 
-*Planned, tracked by tbd-f78.19; not built yet.*
-
-YAML, expanded by a small script into cells. The axes are the grid's:
+`python -m tbd.eval.experiment DEFINITION.yaml [--dry-run] [--only PATTERN]`
+(tbd-f78.19) expands a YAML definition into case0 jobs and runs them. Definitions
+are tracked in `experiments.d/` (`experiments/` is output); the T1 baseline is
+`experiments.d/t1-baseline.yaml`.
 
 ```yaml
-experiment: { name: baseline-t1, version: 1 }
-models:
-  - { name: qwen3.5, runtime: ollama, quant: q4_K_M, endpoint: local }
-facts: [none]
-tasks: [{ id: t1, variants: [canonical, red-band] }]
+experiment: t1-baseline            # the folder: experiments/t1-baseline/
+models:                            # provider (ollama | anthropic, default ollama),
+  - { provider: ollama, model: llama3.1 }    # model, and any setting below
+  - { model: "qwen2.5-coder:14b", num_ctx: 16384 }   # as a per-model override
+facts: [none]                      # fact conditions
+tasks: [{ id: t1, variants: all }] # all = every tasks/t1/<variant>/ with a prompt.txt
 modes: [one-shot, tool-feedback]
-samples: 10
-temperatures: [0.2]
-seeds: [42]
-execution: { provider: local, max_concurrent_jobs: 2, timeout_minutes: 30 }
+samples: 3                         # settings: samples, seed, temperature, retries,
+seed: 42                           #   max_tokens, num_ctx, timeout, think, effort;
+temperature: 0.7                   #   unset ones take case0's defaults
 ```
+
+- **Expansion**: models x facts x tasks/variants x modes, models outermost (a
+  local model stays loaded across its jobs), one case0 job each. Temperature
+  and seed are single values, not axes: case0's job name doesn't include them,
+  so two values would collide in one experiment folder (use two experiments).
+  Unknown keys, tasks, variants, modes, fact conditions, and values case0
+  would reject are errors before anything runs.
+- **Running**: one job at a time (local Ollama), each `python -m
+  tbd.eval.case0 ... --experiment NAME` in a subprocess, so every job has the
+  layout above. Before each Ollama job the runner checks Ollama is reachable
+  and the model is pulled, and stops if not, so a job never dies in setup
+  and leaves a folder behind. `--only` picks jobs by id (a glob, or a
+  substring).
+- **Records**: `experiment.yaml` (the definition, byte for byte) and
+  `jobs.json` (the expanded jobs with their case0 arguments) beside
+  case0's `manifest.json`. Running a changed definition into the same folder
+  (e.g. adding a fact condition) adds `experiment.{stamp}.yaml` and
+  `jobs.{stamp}.json`; nothing is overwritten.
+- **Resume**: running the definition again skips jobs whose metrics.json is
+  `completed` and whose config.json matches the definition's settings. A job
+  folder that exists but didn't complete (interrupted, failed, a stale
+  `running`, or no metrics.json) is reported and skipped, never deleted or
+  reused: case0 refuses an existing folder, and continuing its samples in
+  place would mix two runs in one record. A completed job with other settings
+  is reported as a mismatch. To redo such jobs, run them under a new
+  experiment name. `--dry-run` shows each job's state without running any.
+- **Stopping**: Ctrl-C or SIGTERM is passed once to the running job, which
+  marks itself `interrupted`; no further job starts. A failed job is reported
+  and the next one runs. Exit status: 0 all done, 1 some job not done, 130
+  stopped.
+- At the end it prints the run summary and the grid report for the
+  experiment.
+
+Not built: the proposal's `max_concurrent_jobs` (one at a time is right for a
+single local Ollama) and an `execution.provider` (only local exists).
 
 The proposal's `agent.configurations` axis (single / multi / planner-worker)
 isn't in the grid yet. Adding it multiplies every other axis, so it waits until
