@@ -1,0 +1,58 @@
+# This file checks for a stable NTSC frame showing red, white and blue vertical stripes.
+# To run it on the reference:
+#   cd tasks/t3/flag && dasm reference.asm -f3 -I../../../vendor/atari2600 -obuild/reference.bin
+#   racer-check check.toml
+
+rom = "build/reference.bin"
+
+[run]
+frames = 100
+skip_frames = 1
+zero = true
+random_seeds = 100
+
+[[property]]
+kind = "frame_length"
+lines = 262
+
+# Graded: sync starts on line 0 and lasts 2-4 lines.
+[[property]]
+name = "vsync_span"
+kind = "signal_span"
+signal = "sync"
+first_line = 0
+min_clocks = 456
+max_clocks = 912
+
+# Not graded (see check.py): sync for exactly 3 lines from the start of line 0.
+[[property]]
+name = "vsync"
+kind = "signal_on_lines"
+signal = "sync"
+first_line = 0
+lines = 3
+
+[[property]]
+name = "blanking"
+kind = "blank_outside"
+lines = [40, 232]
+
+[[property]]
+name = "flag"
+kind = "image"
+lines = [40, 232]
+clocks = [68, 228]
+rows = [
+    { lines = 192, runs = [[0x46, 40], [0x0e, 40], [0x84, 80]] },
+]
+
+# Not graded (see check.py): when the reference writes this register.
+# COLUP0, the left half's color in score mode: red in horizontal blank,
+# then white exactly at visible clock 40 (color clock 108).
+[[property]]
+name = "colup0_switch"
+kind = "write_window"
+chip = "tia"
+register = "COLUP0"
+lines = [40, 232]
+windows = [[0, 68], [108, 109]]

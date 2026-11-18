@@ -1,0 +1,40 @@
+Create a kernel with stable framerate that draws three objects moving across each other on a black background: a white ($0E) ship, a yellow ($1E) rock and a green ($C4) UFO. Positions are those of an image's top-left corner: the left end of its top row is at pixel x (0-159, counting from the left edge) on visible line y (0-191, counting from the top). Frames are counted from 0, the first frame drawn.
+
+On frame f, the ship is at x = f mod 153, y = 88; the rock at x = (120 - f) mod 153, y = 91; and the UFO at x = (60 + 2f) mod 153, y = 94. Each object need not be drawn on every frame, but it must be drawn in full on at least one of every two consecutive frames. Where two objects that are drawn on the same frame overlap, the UFO is in front of the rock and the ship, and the rock is in front of the ship.
+
+The images are below. Each row is one scanline, "#" is a pixel in the object's color, and "." shows the background.
+
+Ship:
+
+    ...##...
+    ..####..
+    .######.
+    ########
+    ########
+    .######.
+    ..#..#..
+    .#....#.
+
+Rock:
+
+    ..####..
+    .######.
+    ##.#####
+    ########
+    #####.##
+    ########
+    .######.
+    ..####..
+
+UFO:
+
+    ...##...
+    ..####..
+    ########
+    ##.##.##
+    ########
+    .######.
+    ..#..#..
+    .#....#.
+
+Target: Atari 2600, NTSC. Write 6502 assembly for the DASM assembler. The standard headers are available: include "vcs.h" and include "macro.h". Reply with the complete program in a single ```asm code block.

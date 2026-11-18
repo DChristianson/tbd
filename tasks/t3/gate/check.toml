@@ -1,0 +1,86 @@
+# This file checks for a stable NTSC frame showing a gate drawn in two colors.
+# To run it on the reference:
+#   cd tasks/t3/gate && dasm reference.asm -f3 -I../../../vendor/atari2600 -obuild/reference.bin
+#   racer-check check.toml
+
+rom = "build/reference.bin"
+
+[run]
+frames = 100
+skip_frames = 1
+zero = true
+random_seeds = 100
+
+[[property]]
+kind = "frame_length"
+lines = 262
+
+# Graded: sync starts on line 0 and lasts 2-4 lines.
+[[property]]
+name = "vsync_span"
+kind = "signal_span"
+signal = "sync"
+first_line = 0
+min_clocks = 456
+max_clocks = 912
+
+# Not graded (see check.py): sync for exactly 3 lines from the start of line 0.
+[[property]]
+name = "vsync"
+kind = "signal_on_lines"
+signal = "sync"
+first_line = 0
+lines = 3
+
+[[property]]
+name = "blanking"
+kind = "blank_outside"
+lines = [40, 232]
+
+# The image: 12 rows of 16 lines, each as runs of [color, clocks].
+[[property]]
+name = "image"
+kind = "image"
+lines = [40, 232]
+clocks = [68, 228]
+rows = [
+    { lines = 16, runs = [[0x3c, 160]] },
+    { lines = 16, runs = [[0x3c, 4], [0x84, 152], [0x3c, 4]] },
+    { lines = 16, runs = [[0x3c, 4], [0x84, 4], [0x3c, 16], [0x84, 24], [0x3c, 64], [0x84, 24], [0x3c, 16], [0x84, 4], [0x3c, 4]] },
+    { lines = 16, runs = [[0x3c, 4], [0x84, 4], [0x3c, 16], [0x84, 24], [0x3c, 4], [0x84, 56], [0x3c, 4], [0x84, 24], [0x3c, 16], [0x84, 4], [0x3c, 4]] },
+    { lines = 16, runs = [[0x3c, 4], [0x84, 4], [0x3c, 16], [0x84, 24], [0x3c, 4], [0x84, 4], [0x3c, 48], [0x84, 4], [0x3c, 4], [0x84, 24], [0x3c, 16], [0x84, 4], [0x3c, 4]] },
+    { lines = 16, runs = [[0x3c, 4], [0x84, 4], [0x3c, 16], [0x84, 24], [0x3c, 4], [0x84, 4], [0x3c, 4], [0x84, 40], [0x3c, 4], [0x84, 4], [0x3c, 4], [0x84, 24], [0x3c, 16], [0x84, 4], [0x3c, 4]] },
+    { lines = 16, runs = [[0x3c, 4], [0x84, 4], [0x3c, 16], [0x84, 24], [0x3c, 4], [0x84, 4], [0x3c, 4], [0x84, 40], [0x3c, 4], [0x84, 4], [0x3c, 4], [0x84, 24], [0x3c, 16], [0x84, 4], [0x3c, 4]] },
+    { lines = 16, runs = [[0x3c, 4], [0x84, 4], [0x3c, 16], [0x84, 24], [0x3c, 4], [0x84, 4], [0x3c, 4], [0x84, 40], [0x3c, 4], [0x84, 4], [0x3c, 4], [0x84, 24], [0x3c, 16], [0x84, 4], [0x3c, 4]] },
+    { lines = 16, runs = [[0x3c, 4], [0x84, 4], [0x3c, 16], [0x84, 24], [0x3c, 4], [0x84, 4], [0x3c, 4], [0x84, 40], [0x3c, 4], [0x84, 4], [0x3c, 4], [0x84, 24], [0x3c, 16], [0x84, 4], [0x3c, 4]] },
+    { lines = 16, runs = [[0x3c, 4], [0x84, 152], [0x3c, 4]] },
+    { lines = 16, runs = [[0x3c, 4], [0x84, 152], [0x3c, 4]] },
+    { lines = 16, runs = [[0x3c, 160]] },
+]
+
+# Not graded (see check.py): when the reference writes this register.
+[[property]]
+name = "pf0_windows_41"
+kind = "write_window"
+chip = "tia"
+register = "PF0"
+lines = [41, 232]
+windows = [[0, 67]]
+
+# Not graded (see check.py): when the reference writes this register.
+[[property]]
+name = "pf1_windows_41"
+kind = "write_window"
+chip = "tia"
+register = "PF1"
+lines = [41, 232]
+windows = [[0, 83]]
+
+# Not graded (see check.py): when the reference writes this register.
+[[property]]
+name = "pf2_windows_41"
+kind = "write_window"
+chip = "tia"
+register = "PF2"
+lines = [41, 232]
+windows = [[0, 115]]

@@ -1,0 +1,12 @@
+Create a kernel with stable framerate that draws a ball bouncing between two paddles that follow it by themselves, on a black background. There is no player input. Positions are those of an image's top-left corner: the left end of its top row is at pixel x (0-159, counting from the left edge) on visible line y (0-191, counting from the top). Frames are counted from 0, the first frame drawn.
+
+The left paddle is white ($0E) and the right paddle yellow ($1E). Each is a solid bar 2 pixels wide and 24 lines tall: the left one always at x = 8, the right one at x = 150. The ball is a red ($46) solid square 2 pixels wide and 2 lines tall.
+
+On frame 0 the ball is at x = 79, y = 95, moving 1 pixel right and 1 line down a frame, and both paddles are at y = 84. Each paddle has an aim, which starts at -1 and steps through -1, 8, 16, 7, 15, 23, and back to -1. After each frame is drawn, in this order:
+
+1. If the ball is moving left at x = 10, or moving right at x = 148, and shares at least one line with the paddle on that side, it turns back horizontally. Its vertical speed becomes -1 (up) if its y is less than the paddle's y + 8, 0 if it is less than the paddle's y + 16, and +1 (down) otherwise. That paddle's aim steps to its next value.
+2. If the ball is at y = 0 moving up, it starts moving down; if it is at y = 190 moving down, it starts moving up.
+3. The ball moves by its speed, horizontally and vertically.
+4. Each paddle's target is the ball's new y minus the paddle's aim, raised to 0 if it is less than 0 and lowered to 168 if it is more than 168. Each paddle moves 1 line toward its target, and does not move if it is already there.
+
+Target: Atari 2600, NTSC. Write 6502 assembly for the DASM assembler. The standard headers are available: include "vcs.h" and include "macro.h". Reply with the complete program in a single ```asm code block.

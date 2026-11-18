@@ -1,0 +1,5 @@
+Create a kernel with stable framerate that draws a red ($46) ball bouncing around a black background. The ball is a solid square 2 pixels wide and 2 lines tall. Positions are those of an image's top-left corner: the left end of its top row is at pixel x (0-159, counting from the left edge) on visible line y (0-191, counting from the top). Frames are counted from 0, the first frame drawn.
+
+On frame 0 the ball is at x = 79, y = 95, moving 1 pixel right and 1 line down a frame. After each frame is drawn: if the ball is at x = 0 moving left, or at x = 158 moving right, it turns back horizontally; if it is at y = 0 moving up, or at y = 190 moving down, it turns back vertically; then it moves one step in its current direction.
+
+Target: Atari 2600, NTSC. Write 6502 assembly for the DASM assembler. The standard headers are available: include "vcs.h" and include "macro.h". Reply with the complete program in a single ```asm code block.

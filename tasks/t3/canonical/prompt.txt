@@ -1,0 +1,3 @@
+Create a kernel with stable framerate that fills the screen with a checkerboard grid of 8 columns and 12 rows. Each cell is 20 pixels wide and 16 scanlines tall, so the grid covers all 160 pixels of all 192 visible scanlines. The top-left cell is colored, and colored cells alternate with black ($00) cells along every row and every column. The colored cells in the top row are color $16, and each row's colored cells are $10 more than the row above's, so the bottom row's are $C6.
+
+Target: Atari 2600, NTSC. Write 6502 assembly for the DASM assembler. The standard headers are available: include "vcs.h" and include "macro.h". Reply with the complete program in a single ```asm code block.

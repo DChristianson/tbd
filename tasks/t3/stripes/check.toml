@@ -1,0 +1,59 @@
+# This file checks for a stable NTSC frame with four 9-pixel stripes from pixel 40.
+# To run it on the reference:
+#   cd tasks/t3/stripes && dasm reference.asm -f3 -I../../../vendor/atari2600 -obuild/reference.bin
+#   racer-check check.toml
+
+rom = "build/reference.bin"
+
+[run]
+frames = 100
+skip_frames = 1
+zero = true
+random_seeds = 100
+
+[[property]]
+kind = "frame_length"
+lines = 262
+
+# Graded: sync starts on line 0 and lasts 2-4 lines.
+[[property]]
+name = "vsync_span"
+kind = "signal_span"
+signal = "sync"
+first_line = 0
+min_clocks = 456
+max_clocks = 912
+
+# Not graded (see check.py): sync for exactly 3 lines from the start of line 0.
+[[property]]
+name = "vsync"
+kind = "signal_on_lines"
+signal = "sync"
+first_line = 0
+lines = 3
+
+[[property]]
+name = "blanking"
+kind = "blank_outside"
+lines = [40, 232]
+
+# Visible clocks 40-75: red, white, blue, green, 9 clocks each.
+[[property]]
+name = "stripes"
+kind = "image"
+lines = [40, 232]
+clocks = [108, 144]
+rows = [
+    { lines = 192, runs = [[0x46, 9], [0x0e, 9], [0x84, 9], [0xc4, 9]] },
+]
+
+# Not graded (see check.py): when the reference writes this register.
+# Red by visible clock 40 (color clock 108), then white at 49, blue at 58,
+# and green at 67, each a window one clock wide.
+[[property]]
+name = "colubk_switches"
+kind = "write_window"
+chip = "tia"
+register = "COLUBK"
+lines = [40, 232]
+windows = [[0, 109], [117, 118], [126, 127], [135, 136]]

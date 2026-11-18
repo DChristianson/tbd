@@ -1,0 +1,68 @@
+# This file checks for a stable NTSC frame with one white ship at a fixed position.
+# To run it on the reference:
+#   cd tasks/t4/canonical && dasm reference.asm -f3 -I../../../vendor/atari2600 -obuild/reference.bin
+#   racer-check check.toml
+
+rom = "build/reference.bin"
+
+[run]
+frames = 100
+skip_frames = 1
+zero = true
+random_seeds = 100
+
+[[property]]
+kind = "frame_length"
+lines = 262
+
+# Graded: sync starts on line 0 and lasts 2-4 lines.
+[[property]]
+name = "vsync_span"
+kind = "signal_span"
+signal = "sync"
+first_line = 0
+min_clocks = 456
+max_clocks = 912
+
+# Not graded (see check.py): sync for exactly 3 lines from the start of line 0.
+[[property]]
+name = "vsync"
+kind = "signal_on_lines"
+signal = "sync"
+first_line = 0
+lines = 3
+
+[[property]]
+name = "blanking"
+kind = "blank_outside"
+lines = [40, 232]
+
+# Not graded (see check.py): when the reference writes this register.
+# Every picture line writes the player's row, before the visible line.
+[[property]]
+name = "grp0_in_hblank"
+kind = "write_window"
+chip = "tia"
+register = "GRP0"
+lines = [40, 232]
+clocks = [0, 68]
+
+# Objects, at their position on each frame (from racer's tools/object-positions.py).
+[[property]]
+name = "player0"
+kind = "object"
+lines = [40, 232]
+rows = [0x18, 0x3c, 0x7e, 0xff, 0xff, 0x7e, 0x24, 0x42]
+color = 0x0e
+positions = [[76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92], [76, 92]]
+
+# Added in tbd: every other clock of the picture is the black background.
+# Visible clocks 0-7 are left out, because an HMOVE blanks them, which on a
+# black background looks the same. Objects there are still checked above.
+[[property]]
+name = "background"
+kind = "image"
+lines = [40, 232]
+clocks = [76, 228]
+rows = [{ lines = 192, runs = [[0x00, 152]] }]
+behind = ["player0"]

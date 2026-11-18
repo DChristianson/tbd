@@ -1,0 +1,229 @@
+; Reference solution: RA in red on the left half and CE in blue on the
+; right.
+; Imported from racer's reference/playfield-3d.asm (see tasks/t3/NOTICE.md).
+; Racer assembles it for K = 0, 1, 2, 4 or 8 mirrored middle pixels
+; (dasm -DK=n); without -DK it is K = 0, the picture check.toml checks.
+; The comments below are racer's, and use racer's names for its files and
+; documents.
+;
+; Expected behavior (checked, for K = 0, by check.toml):
+;   - Every frame after the first is 262 lines, VSYNC is on for frame lines
+;     0-2, and output is blanked outside frame lines 40-231.
+;   - Every clock of the picture shows the image's color: 12 rows of 16
+;     lines, 40 pixels of 4 clocks.
+;
+; Score mode (CTRLPF = 3, reflected) draws the left half's playfield in
+; COLUP0 and the right half's in COLUP1, switching at visible clock 80 with
+; no write (TIA-PF-6), so the color change at the middle costs nothing on
+; the line. Each line writes the left half's PF0, PF1, and PF2 in
+; horizontal blank, and then the right half's in their windows, reflected
+; (TIA-PF-5): PF1 at visible clock 43 (window 43-109), PF2 at 76, and PF0
+; at 97 (13-142). PF2 at 76 is the one position its window has with no
+; mirrored middle pixels, and is inside the window for every K, so the
+; kernel is the same for every K; only its tables differ. With K = 8 the
+; right half's PF2 is the left half's, and the rewrite writes the value it
+; already has.
+;
+; Rows are stored once per row, 12 entries a table: X is the row, and Y
+; counts its 16 lines. The busiest line, which starts a row, takes 71 of 76
+; cycles with its WSYNC; 5 are left.
+
+        processor 6502
+        include "vcs.h"
+NO_ILLEGAL_OPCODES = 1          ; SLEEP pads odd cycles with `bit VSYNC`
+        include "macro.h"
+
+        IFNCONST K
+K = 0
+        ENDIF
+
+        seg code
+        org $F000
+
+Reset:
+        sei                     ; CPU setup
+        cld
+        ldx #$FF
+        txs
+        ; Clear the TIA's write registers, which power up with unknown
+        ; values (BOARD-POWERON-1), except the strobes. RAM is not cleared.
+        lda #0
+        sta VSYNC
+        sta VBLANK
+        ldx #$0F - $04
+ClearTIA1:
+        sta $04,x               ; NUSIZ0 through PF2
+        dex
+        bpl ClearTIA1
+        ldx #$29 - $15
+ClearTIA2:
+        sta $15,x               ; AUDC0 through RESMP1
+        dex
+        bpl ClearTIA2
+
+Frame:
+        ; Vertical sync: lines 0-2
+        sta WSYNC               ; line 0
+        lda #%00000010
+        sta VSYNC
+        sta WSYNC               ; line 1
+        sta WSYNC               ; line 2
+
+        ; Vertical blank: lines 3-39. Reflected, in score mode, the colors,
+        ; and the picture's first line's left half.
+        sta WSYNC               ; line 3
+        lda #0
+        sta VSYNC
+        sta COLUBK              ; palette.black
+        lda #3
+        sta CTRLPF
+        lda #$46                ; palette.red
+        sta COLUP0
+        lda #$84                ; palette.blue
+        sta COLUP1
+        lda LeftPF0
+        sta PF0
+        lda LeftPF1
+        sta PF1
+        lda LeftPF2
+        sta PF2
+        ldx #36
+VBlankLoop:
+        sta WSYNC               ; lines 4-39
+        dex
+        bne VBlankLoop
+
+        ; Picture: lines 40-231. Line 40's left half was set in vertical
+        ; blank, so it turns VBLANK off instead, and joins the kernel at the
+        ; same cycle as every other line.
+        ldx #0                  ; row
+        ldy #16                 ; lines left in the row
+        sta WSYNC               ; line 40
+        lda #0                  ;  2
+        sta VBLANK              ;  5
+        SLEEP 13                ; 18
+        jmp Right               ; 21
+Line:
+        sta WSYNC               ; lines 41-231
+        lda LeftPF0,x           ;  4
+        sta PF0                 ;  7
+        lda LeftPF1,x           ; 11
+        sta PF1                 ; 14
+        lda LeftPF2,x           ; 18
+        sta PF2                 ; 21: clock 63, in horizontal blank
+Right:
+        lda RightPF1,x          ; 25
+        SLEEP 9                 ; 34
+        sta PF1                 ; 37: visible 43
+        lda RightPF2,x          ; 41
+        nop                     ; 43
+        nop                     ; 45
+        sta PF2                 ; 48: visible 76
+        lda RightPF0,x          ; 52
+        sta PF0                 ; 55: visible 97
+        dey                     ; 57
+        bne SameRow             ; 60 if taken
+        inx                     ; 61
+        ldy #16                 ; 63
+SameRow:
+        cpx #12                 ; 62, or 65 on a new row
+        bne Line                ; 65, or 68
+
+        ; Overscan: lines 232-261
+        sta WSYNC               ; line 232
+        lda #%00000010
+        sta VBLANK
+        ldx #29
+OverscanLoop:
+        sta WSYNC               ; lines 233-261
+        dex
+        bne OverscanLoop
+
+        jmp Frame
+
+        ; The tables share one page, so no indexed read crosses one.
+        ALIGN 256
+        IF K == 0
+; BEGIN TABLES K=0 (written by tools/playfield-images.py)
+LeftPF0:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+LeftPF1:
+        .byte $00,$00,$00,$0F,$08,$0F,$09,$08,$00,$00,$00,$00
+LeftPF2:
+        .byte $00,$00,$00,$70,$89,$F8,$88,$89,$00,$00,$00,$00
+RightPF0:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+RightPF1:
+        .byte $00,$00,$00,$0F,$00,$07,$00,$0F,$00,$00,$00,$00
+RightPF2:
+        .byte $00,$00,$00,$79,$81,$81,$81,$79,$00,$00,$00,$00
+; END TABLES K=0
+        ENDIF
+        IF K == 1
+; BEGIN TABLES K=1 (written by tools/playfield-images.py)
+LeftPF0:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+LeftPF1:
+        .byte $00,$00,$00,$1E,$11,$1E,$12,$11,$00,$00,$00,$00
+LeftPF2:
+        .byte $00,$00,$00,$38,$44,$7C,$44,$44,$00,$00,$00,$00
+RightPF0:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+RightPF1:
+        .byte $00,$00,$00,$1F,$01,$0F,$01,$1F,$00,$00,$00,$00
+RightPF2:
+        .byte $00,$00,$00,$3C,$40,$40,$40,$3C,$00,$00,$00,$00
+; END TABLES K=1
+        ENDIF
+        IF K == 2
+; BEGIN TABLES K=2 (written by tools/playfield-images.py)
+LeftPF0:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+LeftPF1:
+        .byte $00,$00,$00,$3C,$22,$3C,$24,$22,$00,$00,$00,$00
+LeftPF2:
+        .byte $00,$00,$00,$1C,$22,$3E,$22,$22,$00,$00,$00,$00
+RightPF0:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+RightPF1:
+        .byte $00,$00,$00,$3E,$02,$1E,$02,$3E,$00,$00,$00,$00
+RightPF2:
+        .byte $00,$00,$00,$1E,$20,$20,$20,$1E,$00,$00,$00,$00
+; END TABLES K=2
+        ENDIF
+        IF K == 4
+; BEGIN TABLES K=4 (written by tools/playfield-images.py)
+LeftPF0:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+LeftPF1:
+        .byte $00,$00,$00,$F0,$89,$F1,$91,$89,$00,$00,$00,$00
+LeftPF2:
+        .byte $00,$00,$00,$07,$08,$0F,$08,$08,$00,$00,$00,$00
+RightPF0:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+RightPF1:
+        .byte $00,$00,$00,$F9,$08,$78,$08,$F9,$00,$00,$00,$00
+RightPF2:
+        .byte $00,$00,$00,$07,$08,$08,$08,$07,$00,$00,$00,$00
+; END TABLES K=4
+        ENDIF
+        IF K == 8
+; BEGIN TABLES K=8 (written by tools/playfield-images.py)
+LeftPF0:
+        .byte $00,$00,$00,$F0,$10,$F0,$90,$10,$00,$00,$00,$00
+LeftPF1:
+        .byte $00,$00,$00,$0E,$91,$1F,$11,$91,$00,$00,$00,$00
+LeftPF2:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+RightPF0:
+        .byte $00,$00,$00,$F0,$00,$E0,$00,$F0,$00,$00,$00,$00
+RightPF1:
+        .byte $00,$00,$00,$9E,$81,$81,$81,$9E,$00,$00,$00,$00
+RightPF2:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+; END TABLES K=8
+        ENDIF
+
+        org $FFFC
+        .word Reset             ; reset vector
+        .word Reset             ; IRQ/BRK vector (unused)
