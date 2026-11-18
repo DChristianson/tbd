@@ -56,8 +56,8 @@ from tbd.eval import facts, tasks
 from tbd.eval.checks import grade_program
 from tbd.eval.grading import Grade, extract_code
 from tbd.eval.jobrecords import console_log, toolchain
-from tbd.eval.models import (MAX_OUTPUT_TOKENS, REQUEST_TIMEOUT_S, RequestTimeout,
-                             model_digest, model_template, ollama_chat)
+from tbd.eval.models import (IDLE_TIMEOUT_S, MAX_OUTPUT_TOKENS, REQUEST_TIMEOUT_S,
+                             RequestTimeout, model_digest, model_template, ollama_chat)
 from tbd.paths import RACER_CHECK, ROOT
 
 
@@ -184,7 +184,8 @@ def chat(args, messages: list[dict], seed: int, workdir: Path) -> dict:
                            timeout_s=args.timeout, save_to=workdir)
     return ollama_chat(args.model, messages, temperature=args.temperature, seed=seed,
                        think=args.think, max_tokens=effective_max_tokens(args),
-                       num_ctx=args.num_ctx, timeout_s=args.timeout, save_to=workdir)
+                       num_ctx=args.num_ctx, timeout_s=args.timeout,
+                       idle_timeout_s=args.idle_timeout, save_to=workdir)
 
 
 # Claude requests stream, so a large cap is safe and only what's used is billed;
@@ -219,6 +220,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="context window (default: max(16384, max-tokens + 4096))")
     p.add_argument("--timeout", type=float, default=REQUEST_TIMEOUT_S,
                    help="wall-clock seconds per request; output so far is kept")
+    p.add_argument("--idle-timeout", type=float, default=IDLE_TIMEOUT_S,
+                   help="ollama only: longest silence from the server, including the wait "
+                        "for the first token while the model loads (capped at --timeout)")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--think", choices=("on", "off", "default"), default="default",
                    help="Ollama think flag for reasoning models")
@@ -286,7 +290,8 @@ def main(argv: list[str] | None = None) -> int:
         "thinking": {"type": "adaptive", "display": "summarized"} if anthropic_run else args.think, "retries": args.retries if args.mode == "tool-feedback" else 0,
         "max_tokens": effective_max_tokens(args),
         "num_ctx": None if anthropic_run else (args.num_ctx or max(16384, effective_max_tokens(args) + 4096)),
-        "request_timeout_s": args.timeout, "prompt": args.spec.prompt, "grader": "racer-check",
+        "request_timeout_s": args.timeout,
+        "idle_timeout_s": None if anthropic_run else args.idle_timeout, "prompt": args.spec.prompt, "grader": "racer-check",
         "task_dir": str(args.spec.dir.relative_to(ROOT)),
         "check_files": args.spec.check_files,
         "check_py": args.spec.module is not None,

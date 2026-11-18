@@ -50,6 +50,13 @@ def test_per_model_overrides_win_over_top_level_settings():
     assert argv[-4:] == ["--experiment", "exp", "--out", "/out"]
 
 
+def test_idle_timeout_reaches_case0_and_its_expected_config():
+    job = expand(defn(idle_timeout=240))[0]
+    argv = job.argv("exp", Path("/out"))
+    assert argv[argv.index("--idle-timeout") + 1] == "240"
+    assert experiment.expected_config(job)["idle_timeout_s"] == 240
+
+
 def test_variants_all_is_every_folder_with_a_prompt_canonical_first():
     jobs = expand(defn(tasks=[{"id": "t1", "variants": "all"}], models=["llama3.1"],
                        modes=["one-shot"]))
