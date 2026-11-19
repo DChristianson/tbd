@@ -1,6 +1,7 @@
-; Reference solution: the word RACER across the picture, with a color
-; for each row.
-; Imported from racer's reference/playfield-3c.asm (see tasks/t3/NOTICE.md).
+; Reference solution: the word TBD across the picture, with a color for
+; each row.
+; Imported from racer's reference/playfield-3c.asm (see tasks/t3/NOTICE.md),
+; with tbd's picture in its tables.
 ; The comments below are racer's, and use racer's names for its files and
 ; documents.
 ;
@@ -134,19 +135,19 @@ OverscanLoop:
 
         ; The tables share one page, so no indexed read crosses one.
         ALIGN 256
-; BEGIN TABLES (written by tools/playfield-images.py)
+; BEGIN TABLES (tbd's picture, encoded as racer's tools/playfield-images.py does)
 LeftPF0:
-        .byte $00,$00,$00,$80,$80,$80,$80,$80,$00,$00,$00,$00,$00
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
 LeftPF1:
-        .byte $00,$00,$00,$E1,$12,$E3,$22,$12,$00,$00,$00,$00
+        .byte $00,$00,$00,$0F,$01,$01,$01,$01,$00,$00,$00,$00
 LeftPF2:
-        .byte $00,$00,$00,$C3,$24,$27,$24,$C4,$00,$00,$00,$00
+        .byte $00,$00,$00,$C7,$40,$C0,$40,$C0,$00,$00,$00,$00
 RightPF0:
-        .byte $00,$00,$00,$30,$00,$00,$00,$30,$00,$00,$00,$00
+        .byte $00,$00,$00,$70,$80,$70,$80,$70,$00,$00,$00,$00
 RightPF1:
-        .byte $00,$00,$00,$F9,$81,$F1,$81,$F9,$00,$00,$00,$00
+        .byte $00,$00,$00,$1F,$10,$10,$10,$1F,$00,$00,$00,$00
 RightPF2:
-        .byte $00,$00,$00,$07,$08,$07,$04,$08,$00,$00,$00,$00
+        .byte $00,$00,$00,$00,$01,$01,$01,$00,$00,$00,$00,$00
 RowColor:
         .byte $00,$00,$00,$4E,$4C,$4A,$48,$46,$00,$00,$00,$00
 ; END TABLES
