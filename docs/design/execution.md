@@ -78,7 +78,13 @@ API), `runtime`, `facts`, `fact_snapshot`, `task`, `variant`, `mode`,
 `completed`, `interrupted` on Ctrl-C, `failed` with `error` on a crash),
 `samples_planned`, `samples_done`, `passed`, `pass_rate`,
 `pass_at_1_first_attempt`, `first_attempt_categories`, `near_misses`,
-`attempts_total`, `wall_s`.
+`attempts_total`, `wall_s`. The three first-attempt fields describe each
+sample's attempt 1 only. A sample that fails attempt 1 and passes on a retry
+is counted under attempt 1's category in `first_attempt_categories`, does not
+count toward `pass_at_1_first_attempt`, and counts in `near_misses` if attempt
+1 was a near miss. Runs saved before this was fixed counted such a
+sample as `pass` and dropped its near miss; their attempts.jsonl has the right
+per-attempt categories, and the report recomputes from it.
 
 **Toolchain**: `dasm` is the version DASM reports; `racer_check.sha256`
 hashes the binary that graded (the vendored source is pinned by `git_sha`);
