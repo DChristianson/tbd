@@ -5,10 +5,6 @@
 NO_ILLEGAL_OPCODES = 1          ; SLEEP pads odd cycles with `bit VSYNC`
         include "macro.h"
 
-        IFNCONST K
-K = 0
-        ENDIF
-
         seg code
         org $F000
 
@@ -115,86 +111,20 @@ OverscanLoop:
 
         ; The tables share one page, so no indexed read crosses one.
         ALIGN 256
-        IF K == 0
-; BEGIN TABLES K=0 (written by tools/playfield-images.py)
+; BEGIN TABLES (tbd's picture, encoded as racer's tools/playfield-images.py does)
 LeftPF0:
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+        .byte $00,$00,$00,$E0,$80,$80,$80,$80,$00,$00,$00,$00
 LeftPF1:
-        .byte $00,$00,$00,$0F,$08,$0F,$09,$08,$00,$00,$00,$00
+        .byte $00,$00,$00,$DE,$11,$1E,$11,$1E,$00,$00,$00,$00
 LeftPF2:
-        .byte $00,$00,$00,$70,$89,$F8,$88,$89,$00,$00,$00,$00
+        .byte $00,$00,$00,$1E,$22,$22,$22,$1E,$00,$00,$00,$00
 RightPF0:
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+        .byte $00,$00,$00,$C0,$20,$20,$20,$C0,$00,$00,$00,$00
 RightPF1:
-        .byte $00,$00,$00,$0F,$00,$07,$00,$0F,$00,$00,$00,$00
+        .byte $00,$00,$00,$CF,$51,$4F,$51,$CF,$00,$00,$00,$00
 RightPF2:
-        .byte $00,$00,$00,$79,$81,$81,$81,$79,$00,$00,$00,$00
-; END TABLES K=0
-        ENDIF
-        IF K == 1
-; BEGIN TABLES K=1 (written by tools/playfield-images.py)
-LeftPF0:
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-LeftPF1:
-        .byte $00,$00,$00,$1E,$11,$1E,$12,$11,$00,$00,$00,$00
-LeftPF2:
-        .byte $00,$00,$00,$38,$44,$7C,$44,$44,$00,$00,$00,$00
-RightPF0:
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-RightPF1:
-        .byte $00,$00,$00,$1F,$01,$0F,$01,$1F,$00,$00,$00,$00
-RightPF2:
-        .byte $00,$00,$00,$3C,$40,$40,$40,$3C,$00,$00,$00,$00
-; END TABLES K=1
-        ENDIF
-        IF K == 2
-; BEGIN TABLES K=2 (written by tools/playfield-images.py)
-LeftPF0:
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-LeftPF1:
-        .byte $00,$00,$00,$3C,$22,$3C,$24,$22,$00,$00,$00,$00
-LeftPF2:
-        .byte $00,$00,$00,$1C,$22,$3E,$22,$22,$00,$00,$00,$00
-RightPF0:
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-RightPF1:
-        .byte $00,$00,$00,$3E,$02,$1E,$02,$3E,$00,$00,$00,$00
-RightPF2:
-        .byte $00,$00,$00,$1E,$20,$20,$20,$1E,$00,$00,$00,$00
-; END TABLES K=2
-        ENDIF
-        IF K == 4
-; BEGIN TABLES K=4 (written by tools/playfield-images.py)
-LeftPF0:
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-LeftPF1:
-        .byte $00,$00,$00,$F0,$89,$F1,$91,$89,$00,$00,$00,$00
-LeftPF2:
-        .byte $00,$00,$00,$07,$08,$0F,$08,$08,$00,$00,$00,$00
-RightPF0:
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-RightPF1:
-        .byte $00,$00,$00,$F9,$08,$78,$08,$F9,$00,$00,$00,$00
-RightPF2:
-        .byte $00,$00,$00,$07,$08,$08,$08,$07,$00,$00,$00,$00
-; END TABLES K=4
-        ENDIF
-        IF K == 8
-; BEGIN TABLES K=8 (written by tools/playfield-images.py)
-LeftPF0:
-        .byte $00,$00,$00,$F0,$10,$F0,$90,$10,$00,$00,$00,$00
-LeftPF1:
-        .byte $00,$00,$00,$0E,$91,$1F,$11,$91,$00,$00,$00,$00
-LeftPF2:
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-RightPF0:
-        .byte $00,$00,$00,$F0,$00,$E0,$00,$F0,$00,$00,$00,$00
-RightPF1:
-        .byte $00,$00,$00,$9E,$81,$81,$81,$9E,$00,$00,$00,$00
-RightPF2:
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-; END TABLES K=8
-        ENDIF
+        .byte $00,$00,$00,$3E,$08,$08,$08,$08,$00,$00,$00,$00
+; END TABLES
 
         org $FFFC
         .word Reset             ; reset vector
