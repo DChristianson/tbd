@@ -96,3 +96,11 @@ source_type = "official_doc"
 source_ref = "Stella 7.0c source: stella-core/vendor/stella/src/emucore/System.hxx (ADDRESS_MASK = (1 << 13) - 1, an 8192-byte address space); CartEnhanced.hxx (ROM_OFFSET = 0x1000) and CartEnhanced.cxx (4K bank: myBankSize 0x1000); M6532.hxx (std::array<uInt8, 128> myRAM, 'An amazing 128 bytes of RAM') and M6532.cxx installDelegate (comment 'all mirrors of ZP RAM ($80 - $FF)', RAM read as myRAM[addr & 0x007f])."
 license = "GPL-2.0-or-later (Stella; see stella-core/vendor/stella/NOTICE.md)"
 confidence = 0.9
+
+[[fact]]
+fact_id = "F013"
+text = "Nothing clears the TIA or RAM at power-on: color, playfield and player/missile/ball registers start with arbitrary values, so stray graphics can cover the background. Clear them first thing at reset, e.g. with macro.h's CLEAN_START, which zeroes RAM, the TIA registers and the stack."
+source_type = "official_doc"
+source_ref = "vendor/atari2600/macro.h v1.09, CLEAN_START header comment ('Standardised start-up code, clears stack, all TIA registers and RAM to 0 ... Use as very first section of code on boot (ie: at reset)'); Stella 7.0c source, stella-core/vendor/stella/src/emucore/tia/TIA.cxx reset (pokes random values into TIA registers $00-$2F when tiarandom is set) and M6532.cxx reset (random RAM when ramrandom is set, the default); vendor/racer/crates/sim/src/board.rs PowerOn::Random ('Registers, RAM, the TIA's registers, and the timer are random')."
+license = "GPL-2.0-or-later (DASM support files, Stella); MIT (racer-check, vendor/racer/LICENSE)"
+confidence = 0.9
