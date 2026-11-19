@@ -56,7 +56,7 @@ from tbd.eval import facts, tasks
 from tbd.eval.checks import grade_program
 from tbd.eval.grading import Grade, extract_code
 from tbd.eval.jobrecords import console_log, toolchain
-from tbd.eval.models import (IDLE_TIMEOUT_S, MAX_OUTPUT_TOKENS, REQUEST_TIMEOUT_S,
+from tbd.eval.models import (IDLE_TIMEOUT_S, MAX_OUTPUT_TOKENS, OLLAMA, REQUEST_TIMEOUT_S,
                              RequestTimeout, model_digest, model_template, ollama_chat)
 from tbd.paths import RACER_CHECK, ROOT
 
@@ -182,6 +182,12 @@ def chat(args, messages: list[dict], seed: int, workdir: Path) -> dict:
         return claude_chat(args.model, messages, max_tokens=effective_max_tokens(args),
                            effort=args.effort,
                            timeout_s=args.timeout, save_to=workdir)
+    if args.provider == "runpod":
+        from tbd.eval.runpod_client import runpod_chat
+        return runpod_chat(args.endpoint, args.model, messages, temperature=args.temperature,
+                           seed=seed, think=args.think, max_tokens=effective_max_tokens(args),
+                           num_ctx=args.num_ctx, timeout_s=args.timeout,
+                           idle_timeout_s=args.idle_timeout, save_to=workdir)
     return ollama_chat(args.model, messages, temperature=args.temperature, seed=seed,
                        think=args.think, max_tokens=effective_max_tokens(args),
                        num_ctx=args.num_ctx, timeout_s=args.timeout,
@@ -193,6 +199,17 @@ def chat(args, messages: list[dict], seed: int, workdir: Path) -> dict:
 ANTHROPIC_MAX_TOKENS = 64000
 
 
+def model_host(args) -> str | None:
+    """Where the model was served: the Ollama URL, or runpod:<endpoint id>."""
+    if args.provider == "runpod":
+        return f"runpod:{args.endpoint}"
+    if args.provider == "ollama":
+        from urllib.parse import urlsplit
+        u = urlsplit(OLLAMA)  # drop any credentials in the URL
+        return f"{u.scheme}://{u.hostname}" + (f":{u.port}" if u.port else "")
+    return None
+
+
 def effective_max_tokens(args) -> int:
     if args.max_tokens:
         return args.max_tokens
@@ -201,7 +218,11 @@ def effective_max_tokens(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--provider", choices=("ollama", "anthropic"), default="ollama")
+    p.add_argument("--provider", choices=("ollama", "anthropic", "runpod"), default="ollama",
+                   help="runpod: Ollama on a RunPod serverless endpoint (--endpoint)")
+    p.add_argument("--endpoint", default=None,
+                   help="runpod only: the serverless endpoint id (default: TBD_RUNPOD_ENDPOINT "
+                        "from the environment or .env.runpod)")
     p.add_argument("--model", required=True)
     p.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"), default="high",
                    help="anthropic only: thinking depth (claude-opus-5-5 defaults to medium)")
@@ -265,6 +286,18 @@ def main(argv: list[str] | None = None) -> int:
         except (anthropic.AnthropicError, TypeError) as e:
             p.error(f"Anthropic API not usable for {args.model}: {type(e).__name__}: {e}")
 
+    if args.provider == "runpod":
+        # Check the endpoint and key before any run folder exists.
+        from tbd.eval.runpod_client import ENDPOINT_ENV, RunPodError, health, setting
+        args.endpoint = args.endpoint or setting(ENDPOINT_ENV)
+        if not args.endpoint:
+            p.error(f"--provider runpod needs --endpoint, or {ENDPOINT_ENV} in the "
+                    "environment or .env.runpod")
+        try:
+            health(args.endpoint)
+        except RunPodError as e:
+            p.error(f"RunPod endpoint {args.endpoint} not usable: {e}")
+
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     exp_id = args.experiment or f"case0-{stamp}"
     exp_dir = args.out / exp_id
@@ -275,11 +308,14 @@ def main(argv: list[str] | None = None) -> int:
     job_dir.mkdir(parents=True)
 
     anthropic_run = args.provider == "anthropic"
+    runpod_run = args.provider == "runpod"
     config = {
         "provider": args.provider,
         "model": args.model,
-        "model_digest": None if anthropic_run else model_digest(args.model),
+        # The RunPod worker doesn't expose Ollama's model list, so no digest there.
+        "model_digest": None if anthropic_run or runpod_run else model_digest(args.model),
         "runtime": "anthropic-api" if anthropic_run else "ollama",
+        "model_host": model_host(args),
         "facts": args.facts, "fact_snapshot": facts.snapshot(args.selected_facts),
         "fact_ids": args.fact_ids, "task": args.task, "variant": args.variant,
         "mode": args.mode, "samples": args.samples,
@@ -304,7 +340,7 @@ def main(argv: list[str] | None = None) -> int:
                                         "git_sha": git_sha(), "toolchain": config["toolchain"]},
                                        indent=2))
     (job_dir / "config.json").write_text(json.dumps(config, indent=2))
-    if not anthropic_run:
+    if args.provider == "ollama":
         (job_dir / "model_template.txt").write_text(model_template(args.model))
     with console_log(job_dir):
         return run_cell(args, exp_id, job_id, job_dir)

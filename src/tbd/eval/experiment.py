@@ -62,11 +62,11 @@ from tbd.eval import case0, facts, report, tasks
 from tbd.paths import ROOT, TASKS
 
 MODES = ("one-shot", "tool-feedback")
-PROVIDERS = ("ollama", "anthropic")
+PROVIDERS = ("ollama", "anthropic", "runpod")
 # Definition key -> case0 flag. Each may be set at the top level or per model.
 SETTINGS = {"samples": "--samples", "seed": "--seed", "temperature": "--temperature",
             "retries": "--retries", "max_tokens": "--max-tokens", "num_ctx": "--num-ctx",
-            "timeout": "--timeout", "idle_timeout": "--idle-timeout", "think": "--think", "effort": "--effort"}
+            "timeout": "--timeout", "idle_timeout": "--idle-timeout", "endpoint": "--endpoint", "think": "--think", "effort": "--effort"}
 TOP_KEYS = {"experiment", "models", "facts", "tasks", "modes", *SETTINGS}
 MODEL_KEYS = {"provider", "model", *SETTINGS}
 TASK_KEYS = {"id", "variants"}

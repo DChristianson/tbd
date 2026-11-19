@@ -40,3 +40,6 @@ vendor/racer/target-linux/
 
 # Eval output (experiments/{experiment_id}/...); results are written up in docs/notes/
 experiments/
+
+# Local secrets (API keys). Never commit.
+.env.runpod
