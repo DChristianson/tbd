@@ -1,0 +1,47 @@
+# Do the Task 1 facts help qwen3.6:27b? Facts vs no facts on three T1
+# variants, served by a RunPod serverless endpoint running Ollama
+# (TBD_RUNPOD_ENDPOINT / TBD_RUNPOD_API_KEY, environment or .env.runpod).
+#
+# One-shot isn't run: a tool-feedback sample's first attempt gets the same
+# request, so pass@1 comes from those first attempts.
+#
+# canonical and blue gate split-lr: per fact condition, split-lr runs only if
+# some attempt at canonical or blue assembled.
+#
+# random_seeds 10 instead of the check files' 100: grading then takes ~1 s per
+# check instead of ~8 s. An 8-17 s grade outlasted the endpoint's idle window in
+# the trial runs, so the next attempt started on a cold worker: 70-100 s queued
+# plus about a minute loading the model, ~2.5 min in all. The
+# saved attempts can be regraded with all 100 seeds (tbd.eval.regrade).
+#
+# Settings match the single-sample trials of 2026-11-19
+# (experiments/t1-runpod-qwen3.6-27b-*-try).
+#
+#   python -m tbd.eval.experiment experiments.d/t1-facts-qwen3.6-runpod.yaml --dry-run
+#   python -m tbd.eval.experiment experiments.d/t1-facts-qwen3.6-runpod.yaml
+experiment: t1-facts-qwen3.6-runpod
+
+models:
+  - { provider: runpod, model: "qwen3.6:27b" }
+
+facts: [none, contributed]
+
+tasks:
+  - { id: t1, variants: [canonical, blue, split-lr] }
+
+gate: [t1/canonical, t1/blue]
+
+modes: [tool-feedback]
+
+samples: 5
+seed: 42
+temperature: 0.7
+num_ctx: 20480
+max_tokens: 16384
+retries: 3
+timeout: 1800
+idle_timeout: 300
+random_seeds: 10
+
+# One job per endpoint worker (the endpoint has 3); a fourth would only queue.
+parallel: 3

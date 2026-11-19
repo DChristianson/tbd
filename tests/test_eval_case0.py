@@ -10,7 +10,7 @@ from datetime import datetime
 import pytest
 
 from tbd.eval import case0, tasks
-from tbd.eval.checks import accepted_substitutions
+from tbd.eval.checks import accepted_substitutions, with_random_seeds
 from tbd.eval.checks import grade_program as _grade_program
 from tbd.eval.grading import Grade, extract_code, property_names
 from tbd.eval.grading import categorize as _categorize
@@ -84,6 +84,22 @@ def test_another_red_gets_a_retry_but_not_another_hue():
     # Same hue, outside the accepted $42-$46 range.
     assert subs("40") == {}
     assert subs("48") == {}
+
+
+def test_with_random_seeds_sets_or_adds_the_count():
+    assert "random_seeds = 10\n" in with_random_seeds(CHECK, 10)
+    assert "random_seeds = 100" not in with_random_seeds(CHECK, 10)
+    assert with_random_seeds(CHECK, None) == CHECK
+    added = with_random_seeds('rom = "x"\n[run]\nframes = 5\n', 3)
+    assert added == 'rom = "x"\n[run]\nrandom_seeds = 3\nframes = 5\n'
+
+
+@pytest.mark.skipif(not RACER_CHECK.exists(), reason="racer-check not built")
+def test_random_seeds_override_reaches_the_saved_check_files(tmp_path):
+    _, grade = _grade_program(SPEC, _ref(), tmp_path, random_seeds=4)
+    assert grade.ok, grade.detail
+    assert "random_seeds = 4\n" in (tmp_path / "check.toml").read_text()
+    assert json.loads((tmp_path / "check.result.json").read_text())["report"]["runs"] == 5   # zero + 4
 
 
 @pytest.mark.skipif(not RACER_CHECK.exists(), reason="racer-check not built")

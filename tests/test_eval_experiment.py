@@ -4,6 +4,8 @@ import json
 import os
 import re
 import signal
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -120,17 +122,22 @@ def write_job(exp_dir, job_id, status, config=None, samples_done=3):
 class FakeCase0:
     """Stands in for subprocess_job: writes the job folder case0 would, with a status."""
 
-    def __init__(self, exp_dir, statuses=None, on_call=None):
+    def __init__(self, exp_dir, statuses=None, on_call=None, assembles=lambda job_id: True):
         self.exp_dir, self.statuses, self.on_call = exp_dir, statuses or {}, on_call
-        self.calls = []
+        self.assembles = assembles
+        self.calls, self.labels = [], []
 
-    def __call__(self, argv, stop):
+    def __call__(self, argv, stop, label=None):
         ns = case0.build_parser().parse_args(argv)
         job_id = experiment.job_id(ns.model, ns.task, ns.variant, ns.facts, ns.mode)
         assert not (self.exp_dir / "jobs" / job_id).exists(), "would overwrite"
         self.calls.append(job_id)
+        self.labels.append(label)
         status = self.statuses.get(job_id, "completed")
         write_job(self.exp_dir, job_id, status)
+        (self.exp_dir / "jobs" / job_id / "attempts.jsonl").write_text(
+            json.dumps({"assemble": {"ok": False}}) + "\n"
+            + json.dumps({"assemble": {"ok": self.assembles(job_id)}}) + "\n")
         if self.on_call:
             self.on_call(job_id)
         return 0 if status == "completed" else -2
@@ -287,10 +294,10 @@ def test_stop_forwards_the_first_signal_to_the_running_job():
             sent.append(s)
 
     stop = experiment.Stop()
-    stop.child = Child()
+    stop.children = {Child(), Child()}
     stop(signal.SIGINT, None)
     stop(signal.SIGINT, None)
-    assert sent == [signal.SIGINT] and stop
+    assert sent == [signal.SIGINT, signal.SIGINT] and stop
 
 
 def test_ollama_problem_stops_before_making_a_job_folder(tmp_path, capsys):
@@ -305,3 +312,128 @@ def test_ollama_problem_stops_before_making_a_job_folder(tmp_path, capsys):
     experiment.main([str(path), "--out", str(out)], run_job=fake,
                     preflight=lambda models: next(checks, "Ollama not reachable"))
     assert len(fake.calls) == 1
+
+
+# ---------------------------------------------------------------- random seeds
+
+def test_random_seeds_reaches_case0_and_its_expected_config():
+    job = expand(defn(random_seeds=10))[0]
+    argv = job.argv("exp", Path("/out"))
+    assert argv[argv.index("--random-seeds") + 1] == "10"
+    assert experiment.expected_config(job)["random_seeds"] == 10
+    assert experiment.expected_config(expand(defn())[0])["random_seeds"] is None
+
+
+# ---------------------------------------------------------------- gate
+
+GATED = {"tasks": [{"id": "t1", "variants": ["canonical", "blue", "split-lr"]}],
+         "gate": ["t1/canonical", "t1/blue"], "models": ["llama3.1"],
+         "facts": ["none", "contributed"], "modes": ["tool-feedback"]}
+
+
+def test_gate_jobs_come_first_and_the_rest_wait_on_their_configuration():
+    jobs = expand(defn(**GATED))
+    assert [j.job_id for j in jobs] == [
+        "llama3.1-t1-canonical-none-tool-feedback", "llama3.1-t1-blue-none-tool-feedback",
+        "llama3.1-t1-canonical-contributed-tool-feedback",
+        "llama3.1-t1-blue-contributed-tool-feedback",
+        "llama3.1-t1-split-lr-none-tool-feedback",
+        "llama3.1-t1-split-lr-contributed-tool-feedback"]
+    assert jobs[4].after == ["llama3.1-t1-canonical-none-tool-feedback",
+                             "llama3.1-t1-blue-none-tool-feedback"]
+    assert all(j.gate and not j.after for j in jobs[:4])
+
+
+@pytest.mark.parametrize("gate, message", [
+    (["t1/pal"], "not one of"), (["t1/canonical", "t1/blue", "t1/split-lr"], "not all"),
+    ([], "not all")])
+def test_rejects_bad_gates(gate, message):
+    with pytest.raises(DefinitionError, match=message):
+        expand(defn(**{**GATED, "gate": gate}))
+
+
+@pytest.mark.parametrize("parallel", [0, -1, "2", True])
+def test_rejects_bad_parallel(parallel):
+    with pytest.raises(DefinitionError, match="parallel"):
+        expand(defn(parallel=parallel))
+
+
+def test_configuration_whose_gate_jobs_never_assembled_is_gated(tmp_path, capsys):
+    path, out, exp_dir = setup(tmp_path, **GATED)
+    # Facts "none": nothing assembles. Facts "contributed": blue assembles once.
+    fake = FakeCase0(exp_dir, assembles=lambda job_id: job_id.endswith(
+        "blue-contributed-tool-feedback"))
+    assert experiment.main([str(path), "--out", str(out)], run_job=fake,
+                           preflight=no_preflight) == 0
+    assert "llama3.1-t1-split-lr-none-tool-feedback" not in fake.calls
+    assert fake.calls[-1] == "llama3.1-t1-split-lr-contributed-tool-feedback"
+    assert not (exp_dir / "jobs" / "llama3.1-t1-split-lr-none-tool-feedback").exists()
+    text = capsys.readouterr().out
+    assert "gated: llama3.1-t1-split-lr-none-tool-feedback (no attempt of " in text
+
+
+def test_gate_is_reread_from_disk_on_resume(tmp_path):
+    path, out, exp_dir = setup(tmp_path, **GATED)
+    experiment.main([str(path), "--out", str(out), "--only", "canonical", "--only", "blue"],
+                    run_job=FakeCase0(exp_dir, assembles=lambda j: "-none-" in j),
+                    preflight=no_preflight)
+    again = FakeCase0(exp_dir)
+    experiment.main([str(path), "--out", str(out)], run_job=again, preflight=no_preflight)
+    assert again.calls == ["llama3.1-t1-split-lr-none-tool-feedback"]
+
+
+def test_gate_job_that_failed_leaves_its_configuration_not_run(tmp_path, capsys):
+    path, out, exp_dir = setup(tmp_path, **GATED)
+    failed = "llama3.1-t1-blue-none-tool-feedback"
+    fake = FakeCase0(exp_dir, statuses={failed: "failed"})
+    assert experiment.main([str(path), "--out", str(out)], run_job=fake,
+                           preflight=no_preflight) == 1
+    assert "llama3.1-t1-split-lr-none-tool-feedback" not in fake.calls
+    assert "llama3.1-t1-split-lr-contributed-tool-feedback" in fake.calls
+    assert (f"not run: llama3.1-t1-split-lr-none-tool-feedback (gate job {failed} failed)"
+            in capsys.readouterr().out)
+
+
+def test_dry_run_marks_jobs_behind_a_gate(tmp_path, capsys):
+    path, out, exp_dir = setup(tmp_path, **GATED)
+    experiment.main([str(path), "--dry-run", "--out", str(out)], run_job=FakeCase0(exp_dir))
+    assert re.search(r"split-lr-none-tool-feedback +run if a gate job assembles",
+                     capsys.readouterr().out)
+
+
+# ---------------------------------------------------------------- parallel
+
+def test_parallel_runs_jobs_side_by_side_and_labels_them(tmp_path):
+    path, out, exp_dir = setup(tmp_path, parallel=3)
+    lock, live, peak = threading.Lock(), [0], [0]
+
+    def slow(job_id):
+        with lock:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        time.sleep(0.05)
+        with lock:
+            live[0] -= 1
+
+    fake = FakeCase0(exp_dir, on_call=slow)
+    assert experiment.main([str(path), "--out", str(out)], run_job=fake,
+                           preflight=no_preflight) == 0
+    assert len(fake.calls) == 8 and peak[0] == 3
+    assert sorted(fake.labels) == sorted(fake.calls)
+    # --parallel overrides the definition
+    (tmp_path / "b").mkdir()
+    path2, out2, exp2 = setup(tmp_path / "b", parallel=3)
+    one = FakeCase0(exp2)
+    experiment.main([str(path2), "--out", str(out2), "--parallel", "1"], run_job=one,
+                    preflight=no_preflight)
+    assert one.labels == [None] * 8
+
+
+def test_parallel_gate_holds_back_only_its_own_configuration(tmp_path):
+    path, out, exp_dir = setup(tmp_path, parallel=4, **GATED)
+    order = []
+    fake = FakeCase0(exp_dir, on_call=order.append)
+    assert experiment.main([str(path), "--out", str(out)], run_job=fake,
+                           preflight=no_preflight) == 0
+    assert set(order[:4]) == {j.job_id for j in expand(defn(**GATED)) if j.gate}
+    assert len(order) == 6

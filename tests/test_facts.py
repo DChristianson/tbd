@@ -183,7 +183,7 @@ def _fake_run(tmp_path, monkeypatch, condition):
         workdir.mkdir(parents=True, exist_ok=True)
         return {"message": {"content": "```asm\n  processor 6502\n```"}, "done_reason": "stop"}
 
-    def fake_grade(spec, code, workdir):
+    def fake_grade(spec, code, workdir, random_seeds=None):
         return {"ok": True, "errors": [], "warnings": []}, Grade(False, "timing", detail="x")
 
     monkeypatch.setattr(case0, "chat", fake_chat)
