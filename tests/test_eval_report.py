@@ -299,3 +299,94 @@ def test_report_flags_stale_and_fresh_running_jobs(tmp_path):
                      "fresh": ["e/fresh: status running"],
                      "dead": ["e/dead: status running (stale: pid 999 gone)"],
                      "legacy": ["e/legacy: status running (no heartbeat; stale)"]}
+
+
+# ---------------------------------------------------------------- timing
+
+def _response(eval_s, total_s, worker=None, delay_ms=None):
+    """A saved response.json: Ollama's durations in ns, plus RunPod's job info if given."""
+    resp = {"done": True, "eval_duration": int(eval_s * 1e9),
+            "total_duration": int(total_s * 1e9)}
+    if worker:
+        resp["runpod"] = {"job_id": "j", "worker_id": worker, "delay_ms": delay_ms,
+                          "execution_ms": 1}
+    return resp
+
+
+def write_responses(job, responses):
+    """responses: {(sample, attempt_no): response}. An attempt left out saved none."""
+    for (sample, attempt_no), resp in responses.items():
+        d = job / f"sample-{sample:02d}" / f"attempt-{attempt_no}"
+        d.mkdir(parents=True)
+        (d / "response.json").write_text(json.dumps(resp))
+
+
+def _timing(out, wall_s, eval_s, total_s):
+    return report.attempt_timing({"tokens": {"output": out}, "wall_ms": wall_s * 1000},
+                                 _response(eval_s, total_s))
+
+
+def test_tok_s_is_tokens_over_eval_time_not_a_mean_of_rates():
+    # 1000 tokens in 10 s (100 tok/s) and 10 tokens in 10 s (1 tok/s): the mean of
+    # the rates would be 50.5; the cell's rate is 1010 / 20.
+    t = report.summarize_timing([_timing(1000, 12, 10, 11), _timing(10, 12, 10, 11)])
+    assert t["tok_s"] == 1010 / 20
+
+
+def test_runpod_cell_timing(tmp_path):
+    attempts = [_attempt(0, 1, "timing", out=1000, wall_ms=20_000),
+                _attempt(1, 1, "timing", out=100, wall_ms=5_000)]
+    job = write_job(tmp_path / "e1", "a", _config(samples=2), attempts)
+    write_responses(job, {(0, 1): _response(10, 12, "w1", 500),
+                          (1, 1): _response(1, 2, "w2", 1_000)})
+    [cell] = report.build_cells([report.load_job(job)])
+    t = cell["timing"]
+    assert t["tok_s"] == 1100 / 11
+    assert t["queue_ms"] == 1_500
+    assert t["outside_ms"] == (20 - 0.5 - 12) * 1000 + (5 - 1 - 2) * 1000
+    detail = report.detail_table([cell])
+    row = detail["rows"][0]
+    assert [row[detail["headers"].index(h)] for h in ("tok/s", "queue", "outside gen")] == \
+        ["100.0", "2s", "10s"]
+
+
+def test_timing_without_runpod_data_or_ollama_durations(tmp_path):
+    # Local Ollama: durations but no RunPod data, so no queue and outside is wall - total.
+    # The timed-out attempt saved no response.json, so it has no durations at all.
+    attempts = [_attempt(0, 1, "pass", out=600, wall_ms=8_000),
+                _attempt(1, 1, "timeout", out=0, wall_ms=600_000)]
+    job = write_job(tmp_path / "e1", "a", _config(samples=2), attempts)
+    write_responses(job, {(0, 1): _response(6, 7)})
+    [cell] = report.build_cells([report.load_job(job)])
+    t = cell["timing"]
+    assert (t["tok_s"], t["queue_ms"], t["outside_ms"]) == (100, None, 1_000)
+    assert (t["n"], t["tok_s_n"], t["outside_n"]) == (2, 1, 1)
+    assert report.timing_columns(t) == ["100.0 (1/2)", "-", "1s (1/2)"]
+    assert report.worker_table([cell]) is None
+    assert report.report_tables([cell])[-1]["title"] == "Cell detail"
+
+
+def test_attempts_without_responses_show_dashes(tmp_path):
+    job = write_job(tmp_path / "e1", "a", _config(), ONE_SHOT)
+    [cell] = report.build_cells([report.load_job(job)])
+    assert report.timing_columns(cell["timing"]) == ["-", "-", "-"]
+
+
+def test_worker_table_groups_attempts_across_cells(tmp_path):
+    a = write_job(tmp_path / "e1", "a", _config(facts="none", samples=2),
+                  [_attempt(0, 1, "timing", out=550, wall_ms=12_000),
+                   _attempt(1, 1, "timing", out=1450, wall_ms=11_000)])
+    write_responses(a, {(0, 1): _response(10, 11, "slow", 100),
+                        (1, 1): _response(10, 10.5, "fast", 500)})
+    b = write_job(tmp_path / "e1", "b", _config(facts="contributed", samples=2),
+                  [_attempt(0, 1, "timing", out=550, wall_ms=511_000),
+                   _attempt(1, 1, "timeout", out=0, wall_ms=600_000)])
+    write_responses(b, {(0, 1): _response(10, 11, "slow", 1_000)})   # sample 1 timed out
+    cells = report.build_cells([report.load_job(a), report.load_job(b)])
+    t = report.worker_table(cells)
+    assert t["headers"] == ["worker", "attempts", "tok/s", "queue", "outside gen",
+                            "outside gen / attempt"]
+    # slow: (12 - 0.1 - 11) + (511 - 1 - 11) = 499.9 s over 2 attempts
+    assert t["rows"] == [["fast", "1", "145.0", "0s", "0s", "0s"],
+                         ["slow", "2", "55.0", "1s", "8m20s", "4m10s"]]
+    assert report.report_tables(cells)[-1]["title"] == "RunPod workers"

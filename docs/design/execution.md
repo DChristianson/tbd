@@ -252,3 +252,20 @@ the grid report is enough.
 Record per job: wall time, tokens, tokens/s, GPU type and $/hour where
 applicable. Report **cost per passing attempt**, as the proposal says: a
 cheaper model that needs more attempts can cost more.
+
+The grid report (`python -m tbd.eval.report`) computes the timing from what
+each attempt already saves, so older runs get it without rerunning. Per cell
+it shows tok/s, queue and outside-generation time:
+
+- **tok/s** is the cell's output tokens divided by Ollama's `eval_duration`,
+  both summed over attempts. Summing first means a long attempt counts for
+  more than a short one, which a mean of per-attempt rates would not do.
+- **Queue** is RunPod's `delay_ms`, the time before a worker took the job.
+- **Outside generation** is `wall_ms` less the queue less Ollama's
+  `total_duration`. Model loading, polling and a stalled worker all land here.
+
+For RunPod runs the report adds a table per worker (`runpod.worker_id` in
+response.json) with the same figures, which is where a slow GPU or a stalled
+worker shows up. A timed-out request saves no response.json, so its attempt
+has no Ollama durations and no worker. The report marks a figure that covers
+only some of the attempts with "(k/n)". GPU type isn't recorded yet.

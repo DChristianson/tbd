@@ -3,8 +3,8 @@
     python -m tbd.eval.report experiments/<exp> [experiments/<exp2> ...]
     python -m tbd.eval.report experiments/<exp> --format html --out grid.html
 
-Reads (never writes) each experiment's jobs/{job}/config.json, metrics.json
-and attempts.jsonl; a job folder can also be passed directly. Jobs are grouped
+Reads (never writes) each experiment's jobs/{job}/config.json, metrics.json,
+attempts.jsonl and each attempt's sample-NN/attempt-N/response.json; a job folder can also be passed directly. Jobs are grouped
 into cells keyed by (model, facts, task, variant, mode) plus the run settings
 below, across all the experiments given (docs/design/experiment-grid.md,
 "Metrics per cell"). Jobs that differ in any setting -- including the model
@@ -20,6 +20,11 @@ Per cell:
                   fix, which are the ones that reached the checks
     cost to pass  mean attempts per passing sample, output tokens, wall time,
                   API cost
+    timing        tok/s (output tokens over Ollama's eval_duration, both summed
+                  over attempts), queue (RunPod's delay before a worker took the
+                  job) and outside generation (wall time less queue less
+                  Ollama's total_duration: model load, a stalled worker,
+                  streaming), from each attempt's response.json
     settings      digest, fact_snapshot, num_ctx, max_tokens, temperature,
                   retries, effort, think, fix_syntax, and the toolchain that graded: dasm
                   (version), racer_check (sha256 of the binary, not its path,
@@ -29,6 +34,10 @@ Per cell:
                   row gets the ones that tell it apart from the same model's
                   other rows
 
+For runs served by RunPod, a worker table gives the same timing per worker
+(response.json runpod.worker_id) over all the cells, so a slow or stalled
+worker stands out.
+
 Flagged (marked † in the grid): a job whose metrics status isn't "completed",
 or that has no attempts or unreadable lines. A "running" job is also called
 stale when nothing will update it again (stale_reason): its heartbeat
@@ -36,7 +45,7 @@ stale when nothing will update it again (stale_reason): its heartbeat
 timeout plus a margin, its pid is gone on this host, or it predates heartbeats.
 
 Aggregation is pure functions over plain dicts (summarize_samples,
-aggregate_cell, build_cells, grid_tables, detail_table); load_job does the
+aggregate_cell, build_cells, grid_tables, detail_table, worker_table); load_job does the
 reading and render_markdown / render_html the output.
 """
 
@@ -84,9 +93,33 @@ def load_job(job_dir: Path) -> dict:
                 attempts.append(json.loads(line))
             except ValueError:
                 bad_lines += 1   # e.g. a half-written last line of a running job
+    for a in attempts:
+        folder = job_dir / f"sample-{a.get('sample', 0):02d}" / f"attempt-{a.get('attempt_no', 1)}"
+        try:
+            response = json.loads((folder / "response.json").read_text())
+        except (OSError, ValueError):
+            response = {}   # a timed-out request saves none
+        a["timing"] = attempt_timing(a, response if isinstance(response, dict) else {})
     return {"experiment": job_dir.parent.parent.name, "job": job_dir.name,
             "config": read_json("config.json"), "metrics": read_json("metrics.json"),
             "attempts": attempts, "bad_lines": bad_lines}
+
+
+def attempt_timing(attempt: dict, response: dict) -> dict:
+    """The timing of one attempt, in ms, from its record and its saved response.
+
+    eval_ms and total_ms are Ollama's eval_duration and total_duration (None
+    when the request timed out, or for a provider that doesn't report them).
+    worker_id and delay_ms are RunPod's (None when RunPod didn't serve it)."""
+    def ms(ns):
+        return ns / 1e6 if isinstance(ns, (int, float)) else None
+    runpod = response.get("runpod") or {}
+    return {"output_tokens": (attempt.get("tokens") or {}).get("output") or 0,
+            "wall_ms": attempt.get("wall_ms"),
+            "eval_ms": ms(response.get("eval_duration")),
+            "total_ms": ms(response.get("total_duration")),
+            "worker_id": runpod.get("worker_id"),
+            "delay_ms": runpod.get("delay_ms")}
 
 
 def find_jobs(paths: list[Path]) -> list[Path]:
@@ -198,6 +231,32 @@ def summarize_samples(attempts: list[dict]) -> list[dict]:
     return out
 
 
+def summarize_timing(timings: list[dict]) -> dict:
+    """tok/s, queue and time outside generation over attempt_timing dicts.
+
+    tok/s is the total output tokens over the total eval time, not a mean of
+    per-attempt rates, so long attempts weigh more. It counts only attempts
+    with an eval time. queue_ms sums RunPod's delay, and is None if no attempt
+    has one. outside_ms sums wall - delay - total_duration over the attempts
+    with a total_duration; a missing delay counts as 0 because the attempt
+    wasn't queued on RunPod. Each *_n says how many of the n attempts a figure
+    covers."""
+    evals = [t for t in timings if t["eval_ms"]]
+    eval_ms = sum(t["eval_ms"] for t in evals)
+    queued = [t for t in timings if t["delay_ms"] is not None]
+    outside = [t for t in timings if t["total_ms"] is not None and t["wall_ms"] is not None]
+    return {
+        "n": len(timings),
+        "tok_s": sum(t["output_tokens"] for t in evals) / (eval_ms / 1000) if eval_ms else None,
+        "tok_s_n": len(evals),
+        "queue_ms": sum(t["delay_ms"] for t in queued) if queued else None,
+        "queue_n": len(queued),
+        "outside_ms": (sum(t["wall_ms"] - (t["delay_ms"] or 0) - t["total_ms"] for t in outside)
+                       if outside else None),
+        "outside_n": len(outside),
+    }
+
+
 def pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -269,11 +328,12 @@ def job_flags(job: dict, now: datetime | None = None, host: str | None = None,
 
 def aggregate_cell(key: tuple, jobs: list[dict]) -> dict:
     """All the per-cell metrics for jobs sharing one cell key and the same settings."""
-    samples, budgets, planned = [], set(), 0
+    samples, budgets, planned, timings = [], set(), 0, []
     settings = job_settings(jobs[0]["config"])
     flags = []
     for job in jobs:
         samples += summarize_samples(job["attempts"])
+        timings += [a.get("timing") or attempt_timing(a, {}) for a in job["attempts"]]
         budgets.add(attempt_budget(job["config"], job["attempts"]))
         planned += job["config"].get("samples") or job["metrics"].get("samples_planned") or 0
         assert job_settings(job["config"]) == settings, "build_cells splits on settings"
@@ -300,6 +360,8 @@ def aggregate_cell(key: tuple, jobs: list[dict]) -> dict:
         "output_tokens": sum(s["output_tokens"] for s in samples),
         "wall_ms": sum(s["wall_ms"] for s in samples),
         "cost_usd": sum(costs) if costs else None,
+        "timing": summarize_timing(timings),
+        "timings": timings,
         "settings": settings,
         "flags": flags,
     }
@@ -379,6 +441,27 @@ def _wall(ms: int) -> str:
     return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
 
 
+def _covered(text: str, k: int, n: int) -> str:
+    """text, marked with how many of the n attempts it covers when that isn't all of them."""
+    return text if k == n else f"{text} ({k}/{n})"
+
+
+def timing_columns(t: dict) -> list[str]:
+    """tok/s, queue and outside generation from summarize_timing, as display strings."""
+    tok_s = "-" if t["tok_s"] is None else _covered(f"{t['tok_s']:.1f}", t["tok_s_n"], t["n"])
+    queue = "-" if t["queue_ms"] is None else _covered(_wall(t["queue_ms"]), t["queue_n"], t["n"])
+    outside = ("-" if t["outside_ms"] is None
+               else _covered(_wall(t["outside_ms"]), t["outside_n"], t["n"]))
+    return [tok_s, queue, outside]
+
+
+TIMING_NOTE = ("tok/s is output tokens over Ollama's eval time, both summed over attempts. "
+               "queue is RunPod's delay before a worker took the job. outside gen is wall "
+               "time less queue less Ollama's total_duration: model loading, a stalled "
+               "worker, streaming. A figure marked (k/n) covers k of n attempts; a timed-out "
+               "request records no Ollama durations.")
+
+
 def _pct(n: int, d: int) -> str:
     return f"{n}/{d} ({100 * n / d:.0f}%)" if d else "-"
 
@@ -388,7 +471,8 @@ def detail_table(cells: list[dict]) -> dict:
     headers = (["model", "facts", "task", "variant", "mode", "samples", "pass@1",
                 "pass@budget", "first-attempt categories", "near miss", "assembled",
                 "attempts/pass",
-                "output tokens", "wall", "cost"] + varying + ["flags"])
+                "output tokens", "wall", "cost", "tok/s", "queue", "outside gen"]
+               + varying + ["flags"])
     rows = []
     for c in cells:
         n = c["samples"]
@@ -403,7 +487,7 @@ def detail_table(cells: list[dict]) -> dict:
             "-" if c["mean_attempts_to_pass"] is None else f"{c['mean_attempts_to_pass']:.2f}",
             f"{c['output_tokens']:,}", _wall(c["wall_ms"]),
             "-" if c["cost_usd"] is None else f"${c['cost_usd']:.4f}",
-        ] + [c["settings"][k] for k in varying]
+        ] + timing_columns(c["timing"]) + [c["settings"][k] for k in varying]
           + ["; ".join(c["flags"]) or ""])
     constant = [f"{k}={cells[0]['settings'][k]}" for k in SETTING_KEYS
                 if k not in varying and cells]
@@ -411,7 +495,7 @@ def detail_table(cells: list[dict]) -> dict:
              "where fix_syntax is on; "
              "first-attempt categories and near misses are over first attempts; "
              "attempts/pass is the mean attempt number of the first pass; "
-             "tokens, wall and cost are totals over all attempts."]
+             "tokens, wall and cost are totals over all attempts.", TIMING_NOTE]
     if constant:
         notes.append("Same for every cell: " + ", ".join(constant) + ".")
     return {"title": "Cell detail", "headers": headers, "rows": rows, "notes": notes}
@@ -425,8 +509,34 @@ def assembled_value(cell: dict) -> str:
     return text
 
 
+def worker_table(cells: list[dict]) -> dict | None:
+    """Timing per RunPod worker over all the cells' attempts; None if no attempt names one."""
+    workers: dict[str, list] = {}
+    for c in cells:
+        for t in c["timings"]:
+            if t["worker_id"]:
+                workers.setdefault(t["worker_id"], []).append(t)
+    if not workers:
+        return None
+    rows = []
+    for worker, timings in sorted(workers.items()):
+        t = summarize_timing(timings)
+        per = "-" if t["outside_ms"] is None else _wall(t["outside_ms"] / t["outside_n"])
+        rows.append([worker, str(t["n"])] + timing_columns(t) + [per])
+    return {"title": "RunPod workers",
+            "headers": ["worker", "attempts", "tok/s", "queue", "outside gen",
+                        "outside gen / attempt"],
+            "rows": rows,
+            "notes": ["Attempts whose saved response names the worker (runpod.worker_id), "
+                      "over all cells. A timed-out request names none, so it isn't counted.",
+                      TIMING_NOTE]}
+
+
 def report_tables(cells: list[dict]) -> list[dict]:
-    return grid_tables(cells) + [detail_table(cells)] if cells else []
+    if not cells:
+        return []
+    workers = worker_table(cells)
+    return grid_tables(cells) + [detail_table(cells)] + ([workers] if workers else [])
 
 
 # ---------------------------------------------------------------- rendering
