@@ -104,3 +104,35 @@ source_type = "official_doc"
 source_ref = "vendor/atari2600/macro.h v1.09, CLEAN_START header comment ('Standardised start-up code, clears stack, all TIA registers and RAM to 0 ... Use as very first section of code on boot (ie: at reset)'); Stella 7.0c source, stella-core/vendor/stella/src/emucore/tia/TIA.cxx reset (pokes random values into TIA registers $00-$2F when tiarandom is set; Settings.cxx makes that the default for its developer settings, dev.tiarandom, but not for players, plr.tiarandom) and M6532.cxx reset (random RAM when ramrandom is set, the default for both); vendor/racer/crates/sim/src/board.rs PowerOn::Random ('Registers, RAM, the TIA's registers, and the timer are random')."
 license = "GPL-2.0-or-later (DASM support files, Stella); MIT (racer-check, vendor/racer/LICENSE)"
 confidence = 0.9
+
+[[fact]]
+fact_id = "F014"
+text = "NTSC hues, the high nibble of a TIA color byte: 0 grey, 1 yellow, 2 gold, 3 orange, 4 red, 5 magenta, 6 purple, 7 violet, 8 blue, 9 azure, A sky blue, B teal, C green, D yellow-green, E olive, F brown."
+source_type = "official_doc"
+source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/common/PaletteHandler.cxx ourNTSCPalette (8 entries per hue; at luminance 6: $06 #8e8e8e, $16 #a2a22a, $26 #b47a30, $36 #c66c3a, $46 #c84848, $56 #b846a2, $66 #9246c0, $76 #6848c6, $86 #4248c8, $96 #4272c2, $A6 #4288b0, $B6 #429e82, $C6 #48a048, $D6 #6e9c42, $E6 #88923e, $F6 #a28638)"
+license = "GPL-2.0-or-later (Stella; see stella-core/vendor/stella/NOTICE.md)"
+confidence = 0.85
+
+[[fact]]
+fact_id = "F015"
+text = "PAL hues differ from NTSC: 0, 1, E and F are grey; 2 gold, 3 lime, 4 orange-brown, 5 green, 6 red, 7 teal, 8 magenta, 9 cyan, A purple, B blue, C violet, D indigo. So NTSC red $4x is brown on PAL; PAL red is $6x."
+source_type = "official_doc"
+source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/common/PaletteHandler.cxx ourPALPalette, the #else branch in use (8 entries per hue; at luminance 6: $06 #7b7b7b, $16 #696969, $26 #ac9200, $36 #65b009, $46 #bc7937, $56 #45af45, $66 #c26472, $76 #3caa84, $86 #c159aa, $96 #429cb8, $A6 #af57d2, $B6 #5685da, $C6 #945fe8, $D6 #746fe9, $E6 and $F6 #7b7b7b)"
+license = "GPL-2.0-or-later (Stella; see stella-core/vendor/stella/NOTICE.md)"
+confidence = 0.85
+
+[[fact]]
+fact_id = "F016"
+text = "The low nibble of a color byte is luminance, even values $0 (darkest) to $E (lightest), on NTSC and PAL alike. With hue 0, $00 is black and $0E white; dark shades of NTSC hue 1 look olive, so yellow needs a light one."
+source_type = "official_doc"
+source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/common/PaletteHandler.cxx ourNTSCPalette and ourPALPalette (each hue's 8 entries brighten from $x0 to $xE; odd bytes are 0; NTSC $00 #000000, $0E #ececec, $12 #69690f, $1E #fcfc54; PAL $00 #0b0b0b, $0E #e3e3e3)"
+license = "GPL-2.0-or-later (Stella; see stella-core/vendor/stella/NOTICE.md)"
+confidence = 0.85
+
+[[fact]]
+fact_id = "F017"
+text = "Color bytes for common names. NTSC: black $00, white $0E, red $46, yellow $1E, green $C4, blue $84. PAL: black $00, white $0E, red $64, yellow $2C, green $54, blue $B4."
+source_type = "official_doc"
+source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/common/PaletteHandler.cxx: ourNTSCPalette ($46 #c84848, $1E #fcfc54, $C4 #328432, $84 #2d32b8) and ourPALPalette ($64 #a73d4d, $2C #f7e27f, $54 #169216, $B4 #2d65bf); hue names as in F014 and F015"
+license = "GPL-2.0-or-later (Stella; see stella-core/vendor/stella/NOTICE.md)"
+confidence = 0.85
