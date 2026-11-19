@@ -20,7 +20,7 @@ def line(content, done=False, model="qwen2.5-coder:14b", **extra):
 def fake_runpod(monkeypatch):
     """Serves /run, /stream, /status, /cancel. `polls` is a list of /stream replies
     given in order; the last one repeats."""
-    state = {"polls": [], "seen": 0, "cancelled": [], "runs": [], "auth": []}
+    state = {"polls": [], "seen": 0, "cancelled": [], "runs": [], "auth": [], "status": {}}
 
     class Handler(BaseHTTPRequestHandler):
         def reply(self, obj):
@@ -45,7 +45,8 @@ def fake_runpod(monkeypatch):
                 state["seen"] += 1
             elif "/status/" in self.path:
                 self.reply({"id": "job-1", "status": "COMPLETED", "delayTime": 1200,
-                            "executionTime": 3400, "workerId": "w1", "error": "boom"})
+                            "executionTime": 3400, "workerId": "w1", "error": "boom",
+                            **state["status"]})
 
         def log_message(self, *args):
             pass
@@ -104,6 +105,27 @@ def test_a_different_served_model_is_an_error(fake_runpod):
     with pytest.raises(RunPodError, match="serves llama3.1"):
         chat()
     assert fake_runpod["cancelled"] == ["job-1"]
+
+
+def test_a_reply_missing_from_the_stream_is_read_from_the_job_status(fake_runpod, tmp_path):
+    # RunPod can report COMPLETED before /stream has handed out every chunk; the
+    # job's own output still has them, until RunPod discards it.
+    fake_runpod["polls"] = [{"status": "COMPLETED", "stream": []}]
+    fake_runpod["status"] = {"output": [{"output": line("Hel")},
+                                        {"output": line("lo") + "\n" + line("", done=True)}]}
+    resp = chat(tmp_path)
+    assert resp["message"]["content"] == "Hello" and resp["chunks"] == 3
+    assert (tmp_path / "response.md").read_text() == "Hello"
+    assert len((tmp_path / "stream.jsonl").read_text().splitlines()) == 3
+    assert json.loads((tmp_path / "runpod_status.json").read_text())["status"] == "COMPLETED"
+
+
+def test_a_completed_job_with_no_reply_anywhere_is_an_error_and_keeps_the_status(fake_runpod,
+                                                                                    tmp_path):
+    fake_runpod["polls"] = [{"status": "COMPLETED", "stream": []}]
+    with pytest.raises(RunPodError, match="without a final chunk"):
+        chat(tmp_path)
+    assert (tmp_path / "runpod_status.json").exists()
 
 
 def test_a_failed_job_is_an_error(fake_runpod):

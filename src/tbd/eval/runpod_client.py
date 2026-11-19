@@ -129,6 +129,44 @@ def runpod_chat(endpoint: str, model: str, messages: list[dict], *, temperature:
         flush()
         raise RequestTimeout(why, partial())
 
+    def job_status() -> dict:
+        """The job's status, saved beside the attempt: RunPod keeps it only briefly."""
+        detail = _call("GET", f"{API}/{endpoint}/status/{job_id}")
+        if save_to:
+            (save_to / "runpod_status.json").write_text(json.dumps(detail, indent=2))
+        return detail
+
+    def take(items: list, skip: int = 0):
+        """Add the Ollama chunks in RunPod stream items, after the first `skip`
+        (already taken from /stream)."""
+        nonlocal chunks, final, last_chunk, skipped
+        skipped = 0
+        for item in items:
+            out = item.get("output") if isinstance(item, dict) else item
+            lines = out.splitlines() if isinstance(out, str) else [json.dumps(out)]
+            for line in filter(None, (ln.strip() for ln in lines)):
+                if skipped < skip:
+                    skipped += 1
+                    continue
+                if stream_log:
+                    stream_log.write(line + "\n")
+                    stream_log.flush()
+                chunk = json.loads(line)
+                if chunk.get("error"):
+                    raise RunPodError(f"Ollama on RunPod: {chunk['error']}")
+                served = chunk.get("model")
+                if served and served.split(":latest")[0] != model.split(":latest")[0]:
+                    _call("POST", f"{API}/{endpoint}/cancel/{job_id}")
+                    raise RunPodError(f"endpoint {endpoint} serves {served}, not {model}")
+                chunks += 1
+                last_chunk = time.monotonic()
+                msg = chunk.get("message", {})
+                content.append(msg.get("content", ""))
+                thinking.append(msg.get("thinking", "") or "")
+                if chunk.get("done"):
+                    final = chunk
+
+    skipped = 0
     stream_log = open(save_to / "stream.jsonl", "a") if save_to else None
     try:
         status = None
@@ -144,34 +182,24 @@ def runpod_chat(endpoint: str, model: str, messages: list[dict], *, temperature:
             except RunPodError as e:
                 give_up(f"polling RunPod failed: {e}")
             status = r.get("status")
-            for item in r.get("stream", []):
-                out = item.get("output")
-                lines = out.splitlines() if isinstance(out, str) else [json.dumps(out)]
-                for line in filter(None, (ln.strip() for ln in lines)):
-                    if stream_log:
-                        stream_log.write(line + "\n")
-                        stream_log.flush()
-                    chunk = json.loads(line)
-                    if chunk.get("error"):
-                        raise RunPodError(f"Ollama on RunPod: {chunk['error']}")
-                    served = chunk.get("model")
-                    if served and served.split(":latest")[0] != model.split(":latest")[0]:
-                        _call("POST", f"{API}/{endpoint}/cancel/{job_id}")
-                        raise RunPodError(f"endpoint {endpoint} serves {served}, not {model}")
-                    chunks += 1
-                    last_chunk = time.monotonic()
-                    msg = chunk.get("message", {})
-                    content.append(msg.get("content", ""))
-                    thinking.append(msg.get("thinking", "") or "")
-                    if chunk.get("done"):
-                        final = chunk
+            take(r.get("stream", []))
             flush()
             if final is None and status in ("FAILED", "CANCELLED", "TIMED_OUT"):
-                detail = _call("GET", f"{API}/{endpoint}/status/{job_id}")
+                detail = job_status()
                 raise RunPodError(f"RunPod job {job_id} {status}: "
                                   f"{str(detail.get('error') or detail)[:500]}")
             if final is None and status == "COMPLETED":
-                raise RunPodError(f"RunPod job {job_id} completed without a final chunk")
+                # /stream can say COMPLETED before it has handed out every
+                # chunk. The job's output holds them all, until RunPod
+                # discards it, so read it now.
+                detail = job_status()
+                out = detail.get("output")
+                take(out if isinstance(out, list) else [{"output": out}] if out else [],
+                     skip=chunks)
+                flush()
+                if final is None:
+                    raise RunPodError(f"RunPod job {job_id} completed without a final chunk "
+                                      f"(status: {str(detail)[:300]})")
             if final is None:
                 time.sleep(POLL_S)
     except KeyboardInterrupt:
@@ -183,7 +211,7 @@ def runpod_chat(endpoint: str, model: str, messages: list[dict], *, temperature:
         if stream_log:
             stream_log.close()
     flush()
-    info = _call("GET", f"{API}/{endpoint}/status/{job_id}")
+    info = job_status()
     resp = {**final, "message": partial()["message"], "chunks": chunks,
             "served_model": final.get("model", model),
             "runpod": {"job_id": job_id, "worker_id": info.get("workerId"),
