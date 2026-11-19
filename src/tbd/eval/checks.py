@@ -25,6 +25,17 @@ if TYPE_CHECKING:
 _PROPERTY_BLOCK = re.compile(r"(?ms)^\[\[property\]\]\n.*?(?=^\[\[|\Z)")
 _COLOR_LINE = re.compile(r"(?m)^color = 0x([0-9a-fA-F]+)$")
 _SHOWN_COLOR = re.compile(r"color \$([0-9a-fA-F]{2})")
+_RANDOM_SEEDS = re.compile(r"(?m)^random_seeds\s*=\s*\d+\s*$")
+
+
+def with_random_seeds(check_toml: str, seeds: int | None) -> str:
+    """The check file with its `random_seeds` set to `seeds` (None: as is).
+    Grading time grows with the seed count: 100 seeds take ~8 s per check."""
+    if seeds is None:
+        return check_toml
+    if _RANDOM_SEEDS.search(check_toml):
+        return _RANDOM_SEEDS.sub(f"random_seeds = {seeds}", check_toml)
+    return re.sub(r"(?m)^\[run\]\s*$", f"[run]\nrandom_seeds = {seeds}", check_toml, count=1)
 
 
 def _block_name(block: str) -> str | None:
@@ -75,11 +86,13 @@ def accepted_substitutions(report: dict, check_toml: str,
 
 class Racer:
     """Runs check files over one attempt's ROM, saving each check file and
-    its result in the attempt folder."""
+    its result in the attempt folder. With `random_seeds`, every check file
+    runs that many random power-on states instead of its own count."""
 
-    def __init__(self, variant_dir: Path, workdir: Path):
+    def __init__(self, variant_dir: Path, workdir: Path, random_seeds: int | None = None):
         self.variant_dir = Path(variant_dir)
         self.workdir = Path(workdir)
+        self.random_seeds = random_seeds
         self.ran: list[str] = []  # check files run, by name in the variant folder
 
     def _save_name(self, stem: str) -> str:
@@ -104,7 +117,7 @@ class Racer:
         else:
             text, stem = (self.variant_dir / check).read_text(), check.removesuffix(".toml")
             self.ran.append(check)
-        text = with_rom(text)
+        text = with_random_seeds(with_rom(text), self.random_seeds)
         for prop in accept or {}:
             if property_color(text, prop) is None:
                 raise KeyError(f"{stem}: accept names {prop!r}, not a property with a color")
@@ -204,14 +217,16 @@ def grade_report(spec: "TaskSpec", report: dict) -> Grade:
     return grade
 
 
-def grade_program(spec: "TaskSpec", code: str, workdir: Path) -> tuple[dict, Grade]:
+def grade_program(spec: "TaskSpec", code: str, workdir: Path,
+                  random_seeds: int | None = None) -> tuple[dict, Grade]:
     """Assemble one program and run the variant's checks over it. Returns
     (assemble record, grade). The relaxed tier runs when the strict check
-    ran the program and failed on timing or output."""
+    ran the program and failed on timing or output. `random_seeds` overrides
+    the check files' count (Racer)."""
     asm_rec, failed = assemble_program(code, workdir)
     if failed:
         return asm_rec, failed
-    racer = Racer(spec.dir, workdir)
+    racer = Racer(spec.dir, workdir, random_seeds)
     grade = grade_report(spec, spec.check(racer))
     if grade.category in ("timing", "output_mismatch"):
         relaxed = spec.relaxed(racer)

@@ -133,7 +133,7 @@ def run_job(args, sample: int, job_dir: Path, log, on_attempt=None) -> dict:
             asm_rec, grade = {"ok": False, "errors": [], "warnings": []}, Grade(False, "no_code")
             workdir.mkdir(parents=True, exist_ok=True)
         else:
-            asm_rec, grade = grade_program(args.spec, code, workdir)
+            asm_rec, grade = grade_program(args.spec, code, workdir, args.random_seeds)
         record = {
             "sample": sample, "seed": seed, "attempt_no": attempt_no,
             "prompt": messages[-1]["content"], "response": text, "thinking": thinking,
@@ -245,6 +245,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="ollama only: longest silence from the server, including the wait "
                         "for the first token while the model loads (capped at --timeout)")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--random-seeds", type=int, default=None,
+                   help="random power-on states each check runs, instead of the check "
+                        "file's random_seeds (fewer grade faster; regrade.py can redo "
+                        "saved attempts with the full count)")
     p.add_argument("--think", choices=("on", "off", "default"), default="default",
                    help="Ollama think flag for reasoning models")
     p.add_argument("--experiment", default=None)
@@ -329,6 +333,8 @@ def main(argv: list[str] | None = None) -> int:
         "request_timeout_s": args.timeout,
         "idle_timeout_s": None if anthropic_run else args.idle_timeout, "prompt": args.spec.prompt, "grader": "racer-check",
         "task_dir": str(args.spec.dir.relative_to(ROOT)),
+        # None: each check file's own random_seeds.
+        "random_seeds": args.random_seeds,
         "check_files": args.spec.check_files,
         "check_py": args.spec.module is not None,
         # Per job: the manifest only has the experiment's first job's toolchain.

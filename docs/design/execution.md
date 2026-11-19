@@ -169,15 +169,29 @@ temperature: 0.7                   #   unset ones take case0's defaults
   place would mix two runs in one record. A completed job with other settings
   is reported as a mismatch. To redo such jobs, run them under a new
   experiment name. `--dry-run` shows each job's state without running any.
-- **Stopping**: Ctrl-C or SIGTERM is passed once to the running job, which
+- **Parallel**: `parallel: N` (or `--parallel N`) runs up to N jobs at once.
+  It suits a RunPod endpoint with N workers. It doesn't suit a single local
+  Ollama, which would only queue them. Each job's output is then printed with
+  its job id in front.
+- **Gate**: `gate: [t1/canonical, t1/blue]` runs the listed task/variants
+  first for each model, fact condition and mode. The configuration's other
+  jobs run only if an attempt in some gate job assembled; otherwise they are
+  reported as `gated`. A model that can't produce a stable frame gains
+  nothing from the harder variants, so running them would only spend time.
+- **Random seeds**: `random_seeds: N` makes every check run N random power-on
+  states instead of the count in its check file, and config.json records it.
+  Grading time grows with the count: 100 seeds take about 8 s per check file.
+  On RunPod, a grade longer than the endpoint's idle window lets the worker
+  scale down, so the next attempt waits for a cold start.
+- **Stopping**: Ctrl-C or SIGTERM is passed once to each running job, which
   marks itself `interrupted`; no further job starts. A failed job is reported
   and the next one runs. Exit status: 0 all done, 1 some job not done, 130
   stopped.
 - At the end it prints the run summary and the grid report for the
   experiment.
 
-Not built: the proposal's `max_concurrent_jobs` (one at a time is right for a
-single local Ollama) and an `execution.provider` (only local exists).
+Not built: the proposal's `execution.provider`. Jobs always run from this
+machine; only where the model is served changes.
 
 The proposal's `agent.configurations` axis (single / multi / planner-worker)
 isn't in the grid yet. Adding it multiplies every other axis, so it waits until
