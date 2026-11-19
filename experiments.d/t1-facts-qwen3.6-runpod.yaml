@@ -9,8 +9,9 @@
 # some attempt at canonical or blue assembled.
 #
 # random_seeds 10 instead of the check files' 100: grading then takes ~1 s per
-# check instead of ~8 s. A ~17 s grade outlasted the endpoint's idle window in
-# the trial runs, so the next attempt waited ~2.5 min for a cold worker. The
+# check instead of ~8 s. An 8-17 s grade outlasted the endpoint's idle window in
+# the trial runs, so the next attempt started on a cold worker: 70-100 s queued
+# plus about a minute loading the model, ~2.5 min in all. The
 # saved attempts can be regraded with all 100 seeds (tbd.eval.regrade).
 #
 # Settings match the single-sample trials of 2026-11-19
