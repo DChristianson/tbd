@@ -236,10 +236,60 @@ def test_cli_markdown_and_html(tmp_path, capsys):
     out = tmp_path / "grid.html"
     assert report.main([str(exp), "--format", "html", "--out", str(out)]) == 0
     page = out.read_text()
-    assert "<table>" in page and "<td>1/3</td>" in page
+    assert "<table>" in page and "<a href='#cell-0'>1/3</a></td>" in page
     # the input is never touched
     assert sorted(p.name for p in (exp / "jobs" / "a").iterdir()) == [
         "attempts.jsonl", "config.json", "metrics.json"]
+
+
+def test_html_page_drills_down_to_attempts_and_escapes_model_text(tmp_path):
+    """A grid cell links to its section; an attempt shows prog.asm, DASM errors and
+    racer-check findings from its folder; model text can't inject markup."""
+    exp = tmp_path / "exp"
+    hostile = "<script>alert(1)</script>"
+    attempts = [dict(_attempt(0, 1, "assemble_error"),
+                     prompt="Reference notes:\n[F001] indent directives\n\nWrite a kernel.",
+                     response=f"```asm\n lda #0 ; {hostile}\n```",
+                     thinking="t" * 50000),
+                dict(_attempt(0, 2, "timing"), prompt="DASM reported errors", response="ok")]
+    job = write_job(exp, "a", _config(mode="tool-feedback", retries=1, samples=1), attempts)
+    a1, a2 = job / "sample-00" / "attempt-1", job / "sample-00" / "attempt-2"
+    a1.mkdir(parents=True)
+    a2.mkdir(parents=True)
+    (a1 / "prog.asm").write_text(f" lda #0 ; {hostile}\n")
+    (a1 / "assemble.json").write_text(json.dumps(
+        {"ok": False, "errors": ["prog.asm (1): error: Unknown Mnemonic 'dw'."]}))
+    (a2 / "prog.asm").write_text(" sta COLUBK\n")
+    failure = {"property": "background", "frame": 2, "line": 40, "clock": 68,
+               "observed": "color $78", "required": "color $84"}
+    (a2 / "check.result.json").write_text(json.dumps({"report": {
+        "passed": False, "runs": 2, "runs_unexpected": 2,
+        "unexpected": [{"power_on": "zero", "failures": [failure]},
+                       {"power_on": "random seed 1", "failures": [failure]}]}}))
+    (a2 / "stream.jsonl").write_text("STREAM-NOT-EMBEDDED\n")
+
+    out = tmp_path / "grid.html"
+    assert report.main([str(exp), "--html", str(out)]) == 0
+    page = out.read_text()
+    # the grid, its cell linked to the drill-down section
+    assert "<h2 id='table-0'>t1 / canonical / tool-feedback</h2>" in page
+    assert "<a href='#cell-0'>0/1 → 0/1 @2</a>" in page
+    assert "<details class='cell' id='cell-0'>" in page
+    assert "id='cell-0-j0-s0-a1'" in page and "id='cell-0-j0-s0-a2'" in page
+    # attempt contents: prog.asm, the prompt's reference notes, DASM errors, findings
+    assert " sta COLUBK" in page
+    assert "[F001] indent directives" in page
+    assert "Unknown Mnemonic &#x27;dw&#x27;." in page
+    assert "racer-check check: <span class='fail'>failed</span>, 2 of 2 runs" in page
+    assert "<td>background</td><td>frame 2, line 40, clock 68</td>" in page
+    assert "2: zero, random seed 1" in page   # the same failure in two runs is one row
+    # untrusted text is escaped, long thinking cut, stream logs left out
+    assert hostile not in page
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page
+    assert "t" * 50000 not in page and "characters cut" in page
+    assert "STREAM-NOT-EMBEDDED" not in page
+    # self-contained: nothing fetched from elsewhere
+    assert "http://" not in page and "https://" not in page and " src=" not in page
 
 
 # ---------------------------------------------------------------- staleness

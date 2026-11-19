@@ -207,6 +207,18 @@ temperature: 0.7                   #   unset ones take case0's defaults
 - At the end it prints the run summary and the grid report for the
   experiment.
 
+The grid report can be rerun at any time from the saved files, over one or
+more experiments: `python -m tbd.eval.report experiments/<exp> ...` prints
+markdown. With `--html grid.html` it writes one self-contained page instead,
+so a run can be read away from the machine that produced it. The page has no
+external fetches and opens offline. Each grid cell links to its samples and
+attempts, which show the grade, DASM's errors, racer-check's findings, the
+prompt, the reply, the thinking and prog.asm. To keep the file small (about
+1 MB for 100 attempts), long text is collapsed and thinking is truncated.
+Stream logs and frame dumps are never included. Model output is escaped,
+because it is untrusted text. The page holds prompts and model output, so
+review it before sharing it outside the project.
+
 Not built: the proposal's `execution.provider`. Jobs always run from this
 machine; only where the model is served changes.
 

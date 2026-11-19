@@ -1,7 +1,7 @@
 """Grid report: aggregate saved attempt logs into the experiment grid.
 
     python -m tbd.eval.report experiments/<exp> [experiments/<exp2> ...]
-    python -m tbd.eval.report experiments/<exp> --format html --out grid.html
+    python -m tbd.eval.report experiments/<exp> --html grid.html
 
 Reads (never writes) each experiment's jobs/{job}/config.json, metrics.json,
 attempts.jsonl and each attempt's sample-NN/attempt-N/response.json; a job folder can also be passed directly. Jobs are grouped
@@ -44,6 +44,12 @@ stale when nothing will update it again (stale_reason): its heartbeat
 (metrics updated_at, rewritten after every attempt) is older than the request
 timeout plus a margin, its pid is gone on this host, or it predates heartbeats.
 
+--html PATH (or --format html) writes one self-contained page (report_html):
+the same tables, each grid cell linking to its samples and attempts -- grade,
+DASM errors, racer-check findings, prompt, reply, thinking and prog.asm. It
+also reads each attempt folder's prog.asm, assemble.json, *.result.json and
+error.txt, never stream.jsonl or frames.jsonl.gz; long thinking is truncated.
+
 Aggregation is pure functions over plain dicts (summarize_samples,
 aggregate_cell, build_cells, grid_tables, detail_table, worker_table); load_job does the
 reading and render_markdown / render_html the output.
@@ -52,7 +58,6 @@ reading and render_markdown / render_html the output.
 from __future__ import annotations
 
 import argparse
-import html
 import json
 import os
 import socket
@@ -100,7 +105,7 @@ def load_job(job_dir: Path) -> dict:
         except (OSError, ValueError):
             response = {}   # a timed-out request saves none
         a["timing"] = attempt_timing(a, response if isinstance(response, dict) else {})
-    return {"experiment": job_dir.parent.parent.name, "job": job_dir.name,
+    return {"experiment": job_dir.parent.parent.name, "job": job_dir.name, "dir": job_dir,
             "config": read_json("config.json"), "metrics": read_json("metrics.json"),
             "attempts": attempts, "bad_lines": bad_lines}
 
@@ -381,6 +386,8 @@ def _settings_id(cell: dict) -> tuple:
 
 # ---------------------------------------------------------------- tables
 # A table is {"title", "headers", "rows", "notes"}; renderers turn it into text.
+# "links", where present, is shaped like "rows": each entry is the index (into the
+# cells the table was built from) of the cell that table cell shows, or None.
 
 def _frac(n: int, d: int) -> str:
     return f"{n}/{d}" if d else "-"
@@ -403,6 +410,7 @@ def fact_columns(cells: list[dict]) -> list[str]:
 def grid_tables(cells: list[dict]) -> list[dict]:
     """One table per task x variant x mode: rows = models, columns = fact conditions."""
     facts = fact_columns(cells)
+    index = {id(c): i for i, c in enumerate(cells)}
     sections: dict[tuple, list] = {}
     for c in cells:
         sections.setdefault((c["task"], c["variant"], c["mode"]), []).append(c)
@@ -416,10 +424,14 @@ def grid_tables(cells: list[dict]) -> list[dict]:
                 + [grid_value(lookup[(model, sid, f)]) if (model, sid, f) in lookup
                    else "\u2014" for f in facts]
                 for model, sid in row_ids]
+        links = [[None] + [index[id(lookup[(model, sid, f)])] if (model, sid, f) in lookup
+                           else None for f in facts]
+                 for model, sid in row_ids]
         how = "pass@1" if mode == "one-shot" else "pass@1 \u2192 pass@budget"
         tables.append({"title": f"{task} / {variant} / {mode}",
                        "headers": ["model"] + [f"facts: {f}" for f in facts],
-                       "rows": rows, "notes": [f"Cells: {how}, as passing/samples."]})
+                       "rows": rows, "links": links,
+                       "notes": [f"Cells: {how}, as passing/samples."]})
     return tables
 
 
@@ -498,7 +510,9 @@ def detail_table(cells: list[dict]) -> dict:
              "tokens, wall and cost are totals over all attempts.", TIMING_NOTE]
     if constant:
         notes.append("Same for every cell: " + ", ".join(constant) + ".")
-    return {"title": "Cell detail", "headers": headers, "rows": rows, "notes": notes}
+    links = [[i] + [None] * (len(headers) - 1) for i in range(len(cells))]
+    return {"title": "Cell detail", "headers": headers, "rows": rows, "links": links,
+            "notes": notes}
 
 
 def assembled_value(cell: dict) -> str:
@@ -559,25 +573,12 @@ def render_markdown(tables: list[dict], sources: list[str]) -> str:
     return "\n".join(out)
 
 
-def render_html(tables: list[dict], sources: list[str]) -> str:
-    e = html.escape
-    out = ["<!doctype html><meta charset='utf-8'><title>Grid report</title>",
-           "<style>body{font-family:system-ui,sans-serif;margin:1.5rem}"
-           "table{border-collapse:collapse;margin-bottom:.5rem}"
-           "th,td{border:1px solid #bbb;padding:.25rem .5rem;text-align:left;"
-           "vertical-align:top}th{background:#eee}p.note{color:#555;font-size:.9em}</style>",
-           "<h1>Grid report</h1>", f"<p>Experiments: {e(', '.join(sources))}</p>"]
-    if not tables:
-        out.append("<p>No jobs found.</p>")
-    for t in tables:
-        out.append(f"<h2>{e(t['title'])}</h2><table><tr>"
-                   + "".join(f"<th>{e(h)}</th>" for h in t["headers"]) + "</tr>")
-        out += ["<tr>" + "".join(f"<td>{e(str(v))}</td>" for v in r) + "</tr>"
-                for r in t["rows"]]
-        out.append("</table>")
-        out += [f"<p class='note'>{e(n)}</p>" for n in t["notes"]]
-    out.append(f"<p class='note'>{FLAG} flagged: incomplete job; see the flags column.</p>")
-    return "\n".join(out) + "\n"
+def render_html(tables: list[dict], sources: list[str], cells: list[dict] | None = None,
+                jobs: list[dict] | None = None) -> str:
+    """One self-contained page: the tables and, given the cells and jobs they were
+    built from, each cell's samples and attempts (see report_html)."""
+    from tbd.eval import report_html
+    return report_html.render_page(tables, sources, cells or [], jobs or [])
 
 
 # ---------------------------------------------------------------- CLI
@@ -588,14 +589,21 @@ def main(argv: list[str] | None = None) -> int:
                    help="experiment folders (experiments/<exp>) or job folders")
     p.add_argument("--format", choices=("md", "html"), default="md")
     p.add_argument("--out", type=Path, default=None, help="write here instead of stdout")
+    p.add_argument("--html", type=Path, default=None, metavar="PATH",
+                   help="write the HTML page, with drill-down to attempts, to PATH "
+                        "(the same as --format html --out PATH)")
     args = p.parse_args(argv)
+    if args.html:
+        args.format, args.out = "html", args.html
     for d in args.experiments:
         if not d.is_dir():
             p.error(f"{d} is not a folder")
     jobs = [load_job(j) for j in find_jobs(args.experiments)]
-    tables = report_tables(build_cells(jobs))
+    cells = build_cells(jobs)
+    tables = report_tables(cells)
     sources = [d.name for d in args.experiments]
-    text = (render_html if args.format == "html" else render_markdown)(tables, sources)
+    text = (render_html(tables, sources, cells, jobs) if args.format == "html"
+            else render_markdown(tables, sources))
     if args.out:
         args.out.write_text(text)
     else:
