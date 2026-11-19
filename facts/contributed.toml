@@ -80,3 +80,27 @@ source_type = "official_doc"
 source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/emucore/M6502.m4 (DEC/INC exist only in memory addressing modes; opcodes $1A and $3A are NOPs); DASM 2.20.14.1 release (github.com/dasm-assembler/dasm, tag 2.20.14.1; the version pinned in .devcontainer/Dockerfile), manual docs/sources/6502.tex opcode table (DEC/INC: no implied or accumulator mode) and src/mne6502.c lines 59 and 63; 6502.ts (github.com/6502ts/6502.ts, commit 9c59f7d01e31), src/machine/cpu/Instruction.ts (DEC/INC memory modes only; $1A/$3A are NOPs)."
 license = "GPL-2.0-or-later (Stella, DASM); MIT (6502.ts)"
 confidence = 0.9
+
+[[fact]]
+fact_id = "F011"
+text = "DASM only knows 6502 instructions after a 'processor 6502' directive, which should be the first line of the source (indented, like every directive). Without it, every instruction fails with an error such as \"Unknown Mnemonic 'ldx'\"."
+source_type = "official_doc"
+source_ref = "DASM 2.20.14.1 release (github.com/dasm-assembler/dasm, tag 2.20.14.1; the version pinned in .devcontainer/Dockerfile), manual docs/sources/manual.tex line 1875 ('DASM needs to know the target microprocessor for which it is assembling the code') and line 1877 (the PROCESSOR directive 'should be the first line (other than whitespace and comments) in your source code file'). Reproduced: a program without it gives \"Unknown Mnemonic 'ldx'\" and \"Unknown Mnemonic 'jmp'\"; adding an indented 'processor 6502' line assembles it."
+license = "GPL-2.0-or-later (DASM manual)"
+confidence = 0.95
+
+[[fact]]
+fact_id = "F012"
+text = "The 2600's 6507 decodes only 13 address bits, so a 4K cartridge's ROM appears at $1000-$1FFF and at its mirror $F000-$FFFF; programs are assembled with 'org $F000'. The only RAM is 128 bytes at $80-$FF, which is also where the stack lives."
+source_type = "official_doc"
+source_ref = "Stella 7.0c source: stella-core/vendor/stella/src/emucore/System.hxx (ADDRESS_MASK = (1 << 13) - 1, an 8192-byte address space); CartEnhanced.hxx (ROM_OFFSET = 0x1000) and CartEnhanced.cxx (4K bank: myBankSize 0x1000); M6532.hxx (std::array<uInt8, 128> myRAM, 'An amazing 128 bytes of RAM') and M6532.cxx installDelegate (comment 'all mirrors of ZP RAM ($80 - $FF)'; page-1 stack addresses are routed to the same RAM, '(addr & 0x0300) == 0x0100 is Stack'; RAM read as myRAM[addr & 0x007f]); vendor/atari2600/macro.h v1.09, CLEAN_START comment ('Sets stack pointer to $FF')."
+license = "GPL-2.0-or-later (Stella; see stella-core/vendor/stella/NOTICE.md)"
+confidence = 0.9
+
+[[fact]]
+fact_id = "F013"
+text = "Nothing clears the TIA or RAM at power-on: color, playfield and player/missile/ball registers start with arbitrary values, so stray graphics can cover the background. Clear them first thing at reset, e.g. with macro.h's CLEAN_START, which zeroes RAM, the TIA registers and the stack."
+source_type = "official_doc"
+source_ref = "vendor/atari2600/macro.h v1.09, CLEAN_START header comment ('Standardised start-up code, clears stack, all TIA registers and RAM to 0 ... Use as very first section of code on boot (ie: at reset)'); Stella 7.0c source, stella-core/vendor/stella/src/emucore/tia/TIA.cxx reset (pokes random values into TIA registers $00-$2F when tiarandom is set; Settings.cxx makes that the default for its developer settings, dev.tiarandom, but not for players, plr.tiarandom) and M6532.cxx reset (random RAM when ramrandom is set, the default for both); vendor/racer/crates/sim/src/board.rs PowerOn::Random ('Registers, RAM, the TIA's registers, and the timer are random')."
+license = "GPL-2.0-or-later (DASM support files, Stella); MIT (racer-check, vendor/racer/LICENSE)"
+confidence = 0.9
