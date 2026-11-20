@@ -1,12 +1,15 @@
 # Smoke test for the pod runner: one sample of T1 canonical, one-shot, no
-# facts, with llama3.1 (8B), small enough to run on a laptop's CPU in the
-# pod-runner image. It checks the
+# facts, with llama3.1 (8B). It checks the
 # plumbing (Ollama starts, the model pulls, a job runs, results sync), not the
 # model. See docs/running.md, "Test the pod runner locally".
 #
-# num_ctx 4096 fits the short prompt and the 2048-token reply. At 8192,
-# llama3.1 didn't fit in Docker Desktop's default 7.7 GiB VM: the kernel killed
-# Ollama's model server while it loaded (2026-11-20).
+# num_ctx 4096 fits the short prompt and the 2048-token reply.
+#
+# Memory: on a CPU, Ollama keeps a repacked copy of llama3.1's weights (about
+# 4.4 GB) besides the mapped model file (about 4.9 GB). In Docker Desktop's
+# default 7.7 GiB VM, the kernel killed Ollama's model server while it loaded,
+# at num_ctx 8192 and at 4096 (2026-11-20). Give Docker 12 GB or more for the
+# container smoke test.
 #
 # No facts keeps the prompt short. The program a small model writes rarely
 # assembles, so racer-check is checked separately, with a reference program

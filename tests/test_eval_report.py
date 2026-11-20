@@ -190,6 +190,8 @@ def test_flag_legend_only_when_something_is_flagged(tmp_path):
         [report.load_job(j) for j in report.find_jobs([tmp_path / "bad"])]))
     assert report.any_flagged(flagged)
     assert legend in report.render_markdown(flagged, ["bad"])
+    assert legend not in report.render_html(clean, ["ok"])
+    assert legend in report.render_html(flagged, ["bad"])
 
 
 def test_old_config_missing_keys(tmp_path):

@@ -20,13 +20,22 @@
 # smoke model rarely writes a program that assembles, so this is what checks
 # racer-check works in the image.
 #
-# Each cell writes to experiments/_smoke/<cell>/ (results) and
-# experiments/_smoke/<cell>.log. Read a result with:
-#   python -m tbd.eval.report experiments/_smoke/<cell>/<experiment>
+# Each run writes to its own folder, experiments/_smoke/<UTC time>/, so a rerun
+# always runs every cell again and never overwrites an earlier run:
+# <cell>/ (results), <cell>.log, and toolchain-<image>.log. Read a result with:
+#   python -m tbd.eval.report experiments/_smoke/<time>/<cell>/<experiment>
+#
+# The script exits 1 if a toolchain check or a cell's container fails. A cell
+# whose container succeeds can still have a failed attempt (for example a
+# model that didn't load): read its report to judge the result.
+#
+# The container cell needs Docker to have 12 GB of memory or more (llama3.1 on
+# a CPU; see experiments.d/t1-pod-smoke.yaml).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-OUT="$PWD/experiments/_smoke"
+OUT="$PWD/experiments/_smoke/$(date -u +%Y%m%dT%H%M%SZ)"
+FAILED=0
 SHA="$(git rev-parse HEAD)"
 ENV_FILE="${ENV_FILE:-.env.runpod}"
 CELLS=("${@:-remote host container}")
@@ -43,11 +52,11 @@ build() {   # build <target> <tag>; once per run
 run_cell() {   # run_cell <name> <docker run args...>; records pass or fail
   local name=$1; shift
   mkdir -p "$OUT/$name"
-  echo "== $name: running (log: experiments/_smoke/$name.log)"
+  echo "== $name: running (log: $OUT/$name.log)"
   if docker run --rm "$@" > "$OUT/$name.log" 2>&1; then
     echo "== $name: exit 0"
   else
-    echo "== $name: exit $? (see the log)"
+    echo "== $name: exit $? (see the log)"; FAILED=1
   fi
 }
 
@@ -71,7 +80,7 @@ toolchain() {   # toolchain <image>: DASM and racer-check grade a reference prog
       "tests/test_tasks.py::test_reference_passes[t1/canonical]" > "$OUT/toolchain-$image.log" 2>&1; then
     echo "== toolchain check in $image: passed"
   else
-    echo "== toolchain check in $image: FAILED (see experiments/_smoke/toolchain-$image.log)"
+    echo "== toolchain check in $image: FAILED (see $OUT/toolchain-$image.log)"; FAILED=1
   fi
 }
 [ $needs_worker = 1 ] && toolchain tbd-worker
@@ -96,4 +105,5 @@ for c in "${CELLS[@]}"; do
         tbd-pod-runner ;;
   esac
 done
-echo "== done; results under experiments/_smoke/"
+echo "== done; results under $OUT"
+exit $FAILED

@@ -133,8 +133,11 @@ once more, then runs `--on-exit` (`TBD_ON_EXIT`). Exit status:
 
 ## Test the pod runner locally
 
-**Not yet tried end to end (tbd-f78.27).** These steps should work with Docker
-Desktop on a Mac. They run Ollama on the CPU inside the container, with a
+**Tried on 2026-11-20, not yet passing (tbd-f78.27).** On a Mac with Docker
+Desktop, the image built, the pod runner started Ollama, pulled the model, ran
+the job and synced the results. But Ollama was killed loading llama3.1 in
+Docker's default 7.7 GiB VM; give Docker 12 GB or more. These steps should work
+with Docker Desktop on a Mac. They run Ollama on the CPU inside the container, with a
 model small enough for that. The smoke definition
 `experiments.d/t1-pod-smoke.yaml` runs one sample of T1, one-shot and with
 no facts, with `llama3.1` (8B); it checks the plumbing, not the model.
