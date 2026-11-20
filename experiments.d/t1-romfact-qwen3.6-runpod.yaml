@@ -1,0 +1,29 @@
+# One sample each of T1 canonical and blue with contributed facts, which now
+# include the colour facts (F014-F017) and the ROM layout fact (F018), and the
+# syntax fixer on. Seed 103, other settings as t1-fixer-qwen3.6-runpod.yaml.
+#
+#   python -m tbd.eval.experiment experiments.d/t1-romfact-qwen3.6-runpod.yaml
+experiment: t1-romfact-qwen3.6-runpod
+
+models:
+  - { provider: runpod, model: "qwen3.6:27b" }
+
+facts: [contributed]
+
+tasks:
+  - { id: t1, variants: [canonical, blue] }
+
+modes: [tool-feedback]
+
+samples: 1
+seed: 103
+temperature: 0.7
+num_ctx: 20480
+max_tokens: 16384
+retries: 3
+timeout: 1800
+idle_timeout: 300
+random_seeds: 10
+fix_syntax: true
+
+parallel: 2
