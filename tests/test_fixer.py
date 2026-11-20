@@ -1,169 +1,87 @@
-"""Syntax fixer: each rule, programs it must leave alone, and real failed attempts
-that assemble once fixed.
+"""Syntax fixer: golden tests over input programs, plus what an attempt keeps.
 
-tests/fixtures/fixer/ holds programs models wrote that DASM rejected, copied
+Golden tests. Each tests/fixtures/fixer/cases/<name>.asm is fixed and compared
+with tests/fixtures/fixer/expected/<name>.asm; a difference fails with a
+line-by-line diff. expected/rules.txt lists the rules that fired for each case.
+Reading a case beside its expected file shows what the fixer does, and a change
+to the fixer shows up as a change to these files. After a deliberate change,
+regenerate them and review the diff:
+
+    UPDATE_GOLDEN=1 python -m pytest tests/test_fixer.py
+
+Cases named model-*.asm are programs models wrote that DASM rejected, copied
 unchanged from saved runs (experiments/_collected/assemble-errors-20261119):
 
-    no-processor-no-include.asm  qwen2.5-coder:14b, t1/pal: no processor line, no vcs.h
-    col0-directives.asm          qwen3.6:27b, t1/blue: include in column 0, .endrepeat
-    indented-label.asm           qwen3.6:27b, t1/canonical: ' Start:' indented
-    indented-bare-label.asm      qwen3.6:27b, t1/canonical: ' main_loop' indented, no colon
-    p-6502.asm                   qwen3.6:27b, t1/canonical: ':p 6502', dw
+    model-no-processor-no-include  qwen2.5-coder:14b, t1/pal: no processor line, no vcs.h
+    model-col0-directives          qwen3.6:27b, t1/blue: include in column 0, .endrepeat
+    model-indented-label           qwen3.6:27b, t1/canonical: ' Start:' indented
+    model-indented-bare-label      qwen3.6:27b, t1/canonical: ' main_loop' indented, no colon
+    model-p-6502                   qwen3.6:27b, t1/canonical: ':p 6502', dw
+
+They must also assemble once fixed. The other cases are small programs, one
+per rule, including ones the fixer must leave alone.
 """
 
+import difflib
 import json
+import os
 from pathlib import Path
 
 import pytest
 
-from tbd.eval import case0, tasks
+from tbd.eval import case0
 from tbd.eval.fixer import assemble_with_fixer, fix, map_errors
 from tbd.eval.grading import assemble_program
 from tbd.paths import RACER_CHECK, TASKS
 
-FIXTURES = Path(__file__).parent / "fixtures" / "fixer"
-CORPUS = sorted(FIXTURES.glob("*.asm"))
+FIXER = Path(__file__).parent / "fixtures" / "fixer"
+CASES = sorted((FIXER / "cases").glob("*.asm"))
+EXPECTED = FIXER / "expected"
+RULES = EXPECTED / "rules.txt"
+MODEL_CASES = [p for p in CASES if p.stem.startswith("model-")]
 REFERENCES = sorted(TASKS.glob("*/*/reference.asm"))
+UPDATE = bool(os.environ.get("UPDATE_GOLDEN"))
 
 
 def lines(*body: str) -> str:
     return "\n".join(body) + "\n"
 
 
-HEAD = ("    processor 6502", '    include "vcs.h"', "    org $F000")
+def read_rules() -> dict[str, list[str]]:
+    """expected/rules.txt: `<case>: rule, rule` per line (nothing after the colon: none)."""
+    out = {}
+    for line in RULES.read_text().splitlines():
+        name, _, rules = line.partition(":")
+        out[name.strip()] = [r.strip() for r in rules.split(",") if r.strip()]
+    return out
 
 
-def fixed_body(*body: str) -> tuple[list[str], list[str]]:
-    """fix() over HEAD + body: (the body lines after fixing, the rules that fired)."""
-    f = fix(lines(*HEAD, *body))
-    return f.text.splitlines()[len(HEAD):], f.rules
+# ---------------------------------------------------------------- golden
+
+@pytest.mark.parametrize("case", CASES, ids=lambda p: p.stem)
+def test_golden(case):
+    got = fix(case.read_text())
+    expected = EXPECTED / case.name
+    if UPDATE:
+        expected.write_text(got.text)
+        pytest.skip("golden file rewritten")
+    want = expected.read_text()
+    diff = "".join(difflib.unified_diff(want.splitlines(keepends=True),
+                                        got.text.splitlines(keepends=True),
+                                        f"expected/{case.name}", f"fix(cases/{case.name})"))
+    assert got.text == want, f"fixer output differs from its golden file:\n{diff}"
+    assert got.rules == read_rules().get(case.stem), f"rules for {case.stem}"
+    assert fix(got.text).rules == [], "a fixed program needs nothing more"
 
 
-# ---------------------------------------------------------------- rules
+def test_rules_file_lists_every_case():
+    if UPDATE:
+        RULES.write_text("".join(f"{p.stem}: {', '.join(fix(p.read_text()).rules)}".rstrip() + "\n"
+                                 for p in CASES))
+        pytest.skip("rules.txt rewritten")
+    assert sorted(read_rules()) == [p.stem for p in CASES]
+    assert sorted(p.name for p in EXPECTED.glob("*.asm")) == [p.name for p in CASES]
 
-def test_column0_instruction_directive_and_macro_are_indented():
-    out, rules = fixed_body("lda #0", "sta COLUBK", "include \"macro.h\"", "CLEAN_START",
-                            ".include \"vcs.h\"")
-    assert out == ["    lda #0", "    sta COLUBK", '    include "macro.h"', "    CLEAN_START",
-                   '    .include "vcs.h"']
-    assert rules == ["indent_col0"]
-
-
-def test_column0_symbol_definitions_and_labels_stay():
-    out, rules = fixed_body("COLOR = $42", "Start:", "Loop  lda #0", "end equ 5")
-    assert out == ["COLOR = $42", "Start:", "Loop  lda #0", "end equ 5"]
-    assert rules == []
-
-
-def test_indented_label_with_colon_moves_to_column0():
-    out, rules = fixed_body("  Start:", "    lda #0", "  Loop: dex", "    bne Loop")
-    assert out == ["Start:", "    lda #0", "Loop: dex", "    bne Loop"]
-    assert rules == ["dedent_label"]
-
-
-def test_indented_bare_word_moves_only_when_referenced():
-    out, rules = fixed_body("    main_loop", "    jmp main_loop", "    VERTICAL_BLANK")
-    assert out == ["main_loop", "    jmp main_loop", "    VERTICAL_BLANK"]
-    assert rules == ["dedent_label"]
-
-
-def test_indented_own_macro_is_not_a_label():
-    out, rules = fixed_body("    MAC WAIT", "    sta WSYNC", "    ENDM", "    WAIT",
-                            "    jmp WAIT")
-    assert out[3] == "    WAIT" and rules == []
-
-
-def test_processor_spellings():
-    for line in ("CPU 6502", ":p 6502", "    :p 6502", '.setcpu "6502"', "    .cpu 6502"):
-        f = fix(lines(line, '    include "vcs.h"', "    org $F000", "    nop"))
-        assert f.text.splitlines()[0] == "    processor 6502", line
-        assert f.rules == ["processor_line"], line
-
-
-def test_missing_processor_is_added_first():
-    f = fix(lines('    include "vcs.h"', "    org $F000", "    nop"))
-    assert f.text.splitlines()[:2] == ["    processor 6502", '    include "vcs.h"']
-    assert f.rules == ["add_processor"]
-    assert f.line_map[:2] == [None, 1]
-
-
-def test_dotted_and_indented_processor_counts():
-    assert fix(lines("    .processor 6502", "    nop")).rules == []
-    f = fix(lines("processor 6502", "    nop"))
-    assert f.text.splitlines()[0] == "    processor 6502" and f.rules == ["indent_col0"]
-
-
-@pytest.mark.parametrize("before, after", [
-    ("    dw Reset", "    .word Reset"),
-    ("    .dw Reset, Reset", "    .word Reset, Reset"),
-    ("    db $01,$02", "    .byte $01,$02"),
-    ("Table .db 1", "Table .byte 1"),
-    ("    .res 4", "    ds 4"),
-    ("    res 4", "    ds 4"),
-    ("    .rept 3", "    repeat 3"),
-    ("    .endrepeat", "    repend"),
-    ("    .endr", "    repend"),
-    ("* = $F000", "    org $F000"),
-    ("db $01", "    .byte $01"),
-])
-def test_foreign_directives(before, after):
-    out, rules = fixed_body(before)
-    assert out == [after]
-    assert "foreign_directive" in rules
-
-
-def test_dasm_directives_with_a_dot_are_left_alone():
-    out, rules = fixed_body("    .org $F800", "    .byte 1", "    .word 2", "    .ds 1",
-                            "    .repeat 2", "    nop", "    .repend")
-    assert rules == []
-
-
-def test_star_comment():
-    out, rules = fixed_body("* Title: a kernel", "    nop")
-    assert out == ["; Title: a kernel", "    nop"] and rules == ["star_comment"]
-
-
-def test_accumulator_operand():
-    out, rules = fixed_body("    asl A", "    LSR a ; halve", "    rol", "    ror A", "Lbl rol a")
-    assert out == ["    asl", "    LSR ; halve", "    rol", "    ror", "Lbl rol"]
-    assert rules == ["accumulator_A"]
-
-
-def test_include_name():
-    f = fix(lines("    processor 6502", '    include "vcs.asm"', "    include MACRO.H",
-                  "    nop"))
-    assert f.text.splitlines()[1:3] == ['    include "vcs.h"', '    include "macro.h"']
-    assert f.rules == ["include_name"]
-
-
-def test_includes_added_when_needed():
-    f = fix(lines("    processor 6502", "    org $F000", "    VERTICAL_SYNC", "    sta COLUBK"))
-    assert f.text.splitlines()[:3] == ["    processor 6502", '    include "vcs.h"',
-                                       '    include "macro.h"']
-    assert f.rules == ["add_include_macro.h", "add_include_vcs.h"]
-
-
-def test_no_vcs_h_when_the_program_defines_the_registers():
-    f = fix(lines("    processor 6502", "COLUBK = $09", "    org $F000", "    sta COLUBK"))
-    assert f.rules == []
-
-
-def test_comments_and_strings_are_not_rewritten():
-    out, rules = fixed_body("    nop ; asl A, dw, lda in column 0", '    .byte "db;x"')
-    assert rules == []
-
-
-def test_errors_map_back_to_the_models_lines():
-    f = fix(lines("include \"vcs.h\"", "    org $F000", "    bogus"))
-    assert f.text.splitlines()[0] == "    processor 6502"
-    assert map_errors(["prog.asm (4): error: Unknown Mnemonic 'bogus'.", "--- Unresolved"],
-                      f.line_map) == ["prog.asm (3): error: Unknown Mnemonic 'bogus'.",
-                                      "--- Unresolved"]
-    assert map_errors(["prog.asm (1): error: x"], f.line_map) == \
-        ["prog.asm (line added by the fixer): error: x"]
-
-
-# ---------------------------------------------------------------- what it must leave alone
 
 @pytest.mark.parametrize("ref", REFERENCES, ids=lambda p: f"{p.parent.parent.name}/{p.parent.name}")
 def test_reference_programs_come_out_unchanged(ref):
@@ -171,28 +89,24 @@ def test_reference_programs_come_out_unchanged(ref):
     assert f.rules == [] and f.text == ref.read_text()
 
 
-# ---------------------------------------------------------------- real failed attempts
-
-@pytest.mark.parametrize("path", CORPUS, ids=lambda p: p.stem)
-def test_corpus_program_assembles_after_fixing(path, tmp_path):
-    code = path.read_text()
-    as_written, _ = assemble_program(code, tmp_path / "as-written")
+@pytest.mark.parametrize("case", MODEL_CASES, ids=lambda p: p.stem)
+def test_model_program_assembles_only_after_fixing(case, tmp_path):
+    as_written, _ = assemble_program(case.read_text(), tmp_path / "as-written")
     assert not as_written["ok"]
-    f = fix(code)
-    fixed, _ = assemble_program(f.text, tmp_path / "fixed")
-    assert fixed["ok"], (f.rules, fixed["errors"])
-    assert fix(f.text).rules == []   # a fixed program needs nothing more
+    fixed, _ = assemble_program((EXPECTED / case.name).read_text(), tmp_path / "fixed")
+    assert fixed["ok"], fixed["errors"]
 
 
-def test_corpus_rules():
-    rules = {p.stem: fix(p.read_text()).rules for p in CORPUS}
-    assert rules == {
-        "col0-directives": ["add_processor", "foreign_directive", "indent_col0"],
-        "indented-bare-label": ["dedent_label"],
-        "indented-label": ["dedent_label"],
-        "no-processor-no-include": ["add_include_vcs.h", "add_processor"],
-        "p-6502": ["foreign_directive", "processor_line"],
-    }
+# ---------------------------------------------------------------- error lines
+
+def test_errors_map_back_to_the_models_lines():
+    f = fix(lines("include \"vcs.h\"", "    org $F000", "    bogus"))
+    assert f.line_map[:2] == [None, 1]   # processor line added, then the model's line 1
+    assert map_errors(["prog.asm (4): error: Unknown Mnemonic 'bogus'.", "--- Unresolved"],
+                      f.line_map) == ["prog.asm (3): error: Unknown Mnemonic 'bogus'.",
+                                      "--- Unresolved"]
+    assert map_errors(["prog.asm (1): error: x"], f.line_map) == \
+        ["prog.asm (line added by the fixer): error: x"]
 
 
 # ---------------------------------------------------------------- what an attempt keeps
@@ -206,14 +120,14 @@ def test_program_that_assembles_is_not_touched(tmp_path):
 
 
 def test_fixed_attempt_keeps_the_original(tmp_path):
-    code = (FIXTURES / "p-6502.asm").read_text()
+    code = (FIXER / "cases" / "model-p-6502.asm").read_text()
     asm, failed, rec = assemble_with_fixer(code, tmp_path)
     assert asm["ok"] and failed is None
     assert rec["assembled_as_written"] is False and rec["assembled_after_fix"] is True
-    assert rec["rules"] == ["foreign_directive", "processor_line"]
+    assert rec["rules"] == read_rules()["model-p-6502"]
     assert rec["errors_as_written"]
     assert (tmp_path / "prog.orig.asm").read_text() == code
-    assert (tmp_path / "prog.asm").read_text() == fix(code).text
+    assert (tmp_path / "prog.asm").read_text() == (EXPECTED / "model-p-6502.asm").read_text()
     assert json.loads((tmp_path / "assemble.orig.json").read_text())["ok"] is False
     assert json.loads((tmp_path / "assemble.json").read_text())["ok"] is True
     assert (tmp_path / "build" / "prog.bin").exists()
@@ -238,7 +152,7 @@ def test_unfixable_program_is_left_as_written(tmp_path):
 @pytest.mark.skipif(not RACER_CHECK.exists(), reason="racer-check not built")
 @pytest.mark.parametrize("setting", ["on", "off"])
 def test_case0_records_the_fixer(tmp_path, monkeypatch, setting):
-    code = (FIXTURES / "p-6502.asm").read_text()
+    code = (FIXER / "cases" / "model-p-6502.asm").read_text()
 
     def fake_chat(args, messages, seed, workdir):
         workdir.mkdir(parents=True, exist_ok=True)
