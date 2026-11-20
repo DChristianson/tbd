@@ -55,6 +55,8 @@ experiments/{experiment_id}/          # --experiment, default case0-{UTC stamp}
             stream.jsonl                  # streamed chunks as received
             prog.asm, vcs.h, macro.h      # extracted program, headers beside it
             assemble.json, build/prog.bin # DASM result; the ROM if it assembled
+            prog.orig.asm, assemble.orig.json  # fix_syntax on, when the fixer
+                                          #   changed the program: the model's own
             {check}.toml, {check}.result.json  # each racer-check run, incl.
                                           #   accepted-color re-runs (check-0x44...)
             frames.jsonl.gz               # racer-check --frames, if check.py asks
@@ -70,8 +72,8 @@ means no `prog.asm`; an assemble error means no ROM or check results.
 API), `runtime`, `facts`, `fact_snapshot`, `task`, `variant`, `mode`,
 `samples`, `temperature` and `seed` (null where the provider takes none),
 `effort`, `thinking`, `retries` (0 for one-shot), `max_tokens`, `num_ctx`,
-`request_timeout_s`, `prompt`, `grader`, `task_dir`, `check_files`,
-`check_py`, `toolchain` (the job's own: `dasm`, `racer_check` {`path`,
+`request_timeout_s`, `prompt`, `grader`, `task_dir`, `random_seeds`,
+`fix_syntax`, `check_files`, `check_py`, `toolchain` (the job's own: `dasm`, `racer_check` {`path`,
 `sha256`}, `image_digest`; see Toolchain below).
 
 **metrics.json**, rewritten after every sample: `status` (`running`,
@@ -189,6 +191,15 @@ temperature: 0.7                   #   unset ones take case0's defaults
   Grading time grows with the count: 100 seeds take about 8 s per check file.
   On RunPod, a grade longer than the endpoint's idle window lets the worker
   scale down, so the next attempt waits for a cold start.
+- **Syntax fixer**: `fix_syntax: true` (case0 `--fix-syntax on`) rewrites a
+  program DASM rejects toward DASM syntax and grades the result
+  (tbd.eval.fixer has the rules). Without it, most attempts by small local
+  models fail in DASM on slips such as code in column 0, so the checks never
+  run. It is off by default and recorded in config.json, so runs with and
+  without it are never mixed. Each attempt's `fix` record says whether DASM
+  took the program as written and after the fix, and which rules fired; the
+  model's own program stays in `prog.orig.asm`. The grid report shows both
+  counts, so a comparison such as facts against none can use either.
 - **Stopping**: Ctrl-C or SIGTERM is passed once to each running job, which
   marks itself `interrupted`; no further job starts. A failed job is reported
   and the next one runs. Exit status: 0 all done, 1 some job not done, 130

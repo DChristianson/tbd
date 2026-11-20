@@ -192,6 +192,30 @@ def test_old_config_missing_keys(tmp_path):
     assert [cell["settings"][k] for k in ("dasm", "racer_check", "image")] == ["-", "-", "-"]
 
 
+def test_assembled_as_written_and_after_fix(tmp_path):
+    def attempt(sample, as_written, after, fixer):
+        a = _attempt(sample, 1, "timing" if after else "assemble_error")
+        a["assemble"] = {"ok": after}
+        if fixer:
+            a["fix"] = {"assembled_as_written": as_written, "assembled_after_fix": after,
+                        "rules": [] if as_written or not after else ["indent_col0"]}
+        return a
+
+    write_job(tmp_path / "e", "off", _config(model="m1"),
+              [attempt(0, True, True, False), attempt(1, False, False, False)])
+    write_job(tmp_path / "e", "on", _config(model="m1", fix_syntax=True),
+              [attempt(0, True, True, True), attempt(1, False, True, True),
+               attempt(2, False, False, True)])
+    write_job(tmp_path / "e", "old", _config(model="m2"), [_attempt(0, 1, "pass")])
+    cells = report.build_cells([report.load_job(j) for j in report.find_jobs([tmp_path / "e"])])
+    by = {(c["model"], c["settings"]["fix_syntax"]): c for c in cells}
+    assert set(by) == {("m1", "off"), ("m1", "on"), ("m2", "off")}
+    assert report.assembled_value(by[("m1", "off")]) == "1/2"
+    assert report.assembled_value(by[("m1", "on")]) == "1/3 → 2/3"
+    t = report.detail_table(cells)
+    assert "assembled" in t["headers"] and "fix_syntax" in t["headers"]
+
+
 def test_detail_table_shows_only_varying_settings(tmp_path):
     write_job(tmp_path / "e", "a", _config(model="m1"), ONE_SHOT)
     write_job(tmp_path / "e", "b", _config(model="m2", num_ctx=32768), ONE_SHOT)

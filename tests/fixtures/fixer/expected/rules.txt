@@ -1,0 +1,21 @@
+accumulator-operand: accumulator_A
+col0-definitions-and-labels-stay:
+comments-and-strings-stay:
+dasm-dot-directives-stay:
+foreign-directives: foreign_directive, indent_col0
+include-names: include_name
+includes-added: add_include_macro.h, add_include_vcs.h
+indent-col0: indent_col0
+indented-labels: dedent_label
+model-col0-directives: add_processor, foreign_directive, indent_col0
+model-indented-bare-label: dedent_label
+model-indented-label: dedent_label
+model-no-processor-no-include: add_include_vcs.h, add_processor
+model-p-6502: foreign_directive, processor_line
+own-macro-not-a-label:
+processor-col0: indent_col0
+processor-dotted-stays:
+processor-missing: add_processor
+processor-spellings: processor_line
+registers-defined-no-vcs:
+star-comment: star_comment

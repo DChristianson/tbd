@@ -183,11 +183,11 @@ def _fake_run(tmp_path, monkeypatch, condition):
         workdir.mkdir(parents=True, exist_ok=True)
         return {"message": {"content": "```asm\n  processor 6502\n```"}, "done_reason": "stop"}
 
-    def fake_grade(spec, code, workdir, random_seeds=None):
-        return {"ok": True, "errors": [], "warnings": []}, Grade(False, "timing", detail="x")
+    def fake_grade(spec, code, workdir, random_seeds=None, fix_syntax=False):
+        return {"ok": True, "errors": [], "warnings": []}, Grade(False, "timing", detail="x"), None
 
     monkeypatch.setattr(case0, "chat", fake_chat)
-    monkeypatch.setattr(case0, "grade_program", fake_grade)
+    monkeypatch.setattr(case0, "grade_attempt", fake_grade)
     monkeypatch.setattr(case0, "model_digest", lambda m: "digest")
     monkeypatch.setattr(case0, "model_template", lambda m: "")
     monkeypatch.setattr(case0, "RACER_CHECK", tmp_path)  # exists

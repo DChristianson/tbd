@@ -324,6 +324,28 @@ def test_random_seeds_reaches_case0_and_its_expected_config():
     assert experiment.expected_config(expand(defn())[0])["random_seeds"] is None
 
 
+# ---------------------------------------------------------------- syntax fixer
+
+def test_fix_syntax_reaches_case0_as_on_off_and_its_expected_config():
+    job = expand(defn(fix_syntax=True))[0]
+    argv = job.argv("exp", Path("/out"))
+    assert argv[argv.index("--fix-syntax") + 1] == "on"
+    assert experiment.expected_config(job)["fix_syntax"] is True
+    assert experiment.expected_config(expand(defn())[0])["fix_syntax"] is False
+
+
+def test_job_recorded_before_the_fixer_counts_as_fixer_off(tmp_path):
+    """A config.json without fix_syntax ran without the fixer."""
+    exp_dir = tmp_path / "exp"
+    job = expand(defn())[0]
+    old = {k: v for k, v in experiment.expected_config(job).items() if k != "fix_syntax"}
+    write_job(exp_dir, job.job_id, "completed", old)
+    assert experiment.job_state(job, exp_dir) == ("done", "")
+    fixed = expand(defn(fix_syntax=True))[0]
+    state, detail = experiment.job_state(fixed, exp_dir)
+    assert state == "mismatch" and "fix_syntax=False (definition: True)" in detail
+
+
 # ---------------------------------------------------------------- gate
 
 GATED = {"tasks": [{"id": "t1", "variants": ["canonical", "blue", "split-lr"]}],
