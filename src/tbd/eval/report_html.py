@@ -300,9 +300,10 @@ def render_page(tables: list[dict], sources: list[str], cells: list[dict],
         # without the cells there are no sections to link to
         out.append(_table(t if cells else {**t, "links": []}, f"table-{n}"))
     if tables:
-        out.append(f"<p class='note'>{report.FLAG} flagged: incomplete job; "
-                   "see the flags column. Each grid cell links to its samples and attempts "
-                   "below.</p>")
+        flagged = (f"{report.FLAG} flagged: incomplete job; see the flags column. "
+                   if report.any_flagged(tables) else "")
+        out.append(f"<p class='note'>{flagged}Each grid cell links to its samples and "
+                   "attempts below.</p>")
     if cells:
         out.append("<h2 id='cells'>Samples and attempts</h2>"
                    "<p><button onclick=\"setAll('details.cell,details.sample',true)\">"
