@@ -1,0 +1,35 @@
+# Does the syntax fixer (tbd.eval.fixer) help qwen3.6:27b past DASM? One
+# sample of T1 canonical and blue, with and without facts, at seed 103. In
+# t1-facts-qwen3.6-runpod (2026-11-19) the seed-103 sample's first attempt
+# failed to assemble in all four of these cells. The same seed reproduced a
+# first attempt exactly before, so attempt 1 should be the same program, now
+# fixed before grading.
+#
+# Settings otherwise match t1-facts-qwen3.6-runpod.yaml.
+#
+#   python -m tbd.eval.experiment experiments.d/t1-fixer-qwen3.6-runpod.yaml --dry-run
+#   python -m tbd.eval.experiment experiments.d/t1-fixer-qwen3.6-runpod.yaml
+experiment: t1-fixer-qwen3.6-runpod
+
+models:
+  - { provider: runpod, model: "qwen3.6:27b" }
+
+facts: [none, contributed]
+
+tasks:
+  - { id: t1, variants: [canonical, blue] }
+
+modes: [tool-feedback]
+
+samples: 1
+seed: 103
+temperature: 0.7
+num_ctx: 20480
+max_tokens: 16384
+retries: 3
+timeout: 1800
+idle_timeout: 300
+random_seeds: 10
+fix_syntax: true
+
+parallel: 3

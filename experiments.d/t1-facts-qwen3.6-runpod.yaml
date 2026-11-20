@@ -34,7 +34,7 @@ gate: [t1/canonical, t1/blue]
 modes: [tool-feedback]
 
 samples: 5
-seed: 42
+seed: 103
 temperature: 0.7
 num_ctx: 20480
 max_tokens: 16384
