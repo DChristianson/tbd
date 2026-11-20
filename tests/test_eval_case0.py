@@ -370,13 +370,13 @@ def test_a_later_pass_keeps_the_first_attempt_category(tmp_path, monkeypatch):
         workdir.mkdir(parents=True, exist_ok=True)
         return {"message": {"content": "```asm\n  processor 6502\n```"}, "done_reason": "stop"}
 
-    def fake_grade(spec, code, workdir, random_seeds=None):
+    def fake_grade(spec, code, workdir, random_seeds=None, fix_syntax=False):
         sample = int(workdir.parent.name.split("-")[1])
         attempt = int(workdir.name.split("-")[1])
-        return {"ok": True, "errors": [], "warnings": []}, plan[sample][attempt - 1]
+        return {"ok": True, "errors": [], "warnings": []}, plan[sample][attempt - 1], None
 
     monkeypatch.setattr(case0, "chat", fake_chat)
-    monkeypatch.setattr(case0, "grade_program", fake_grade)
+    monkeypatch.setattr(case0, "grade_attempt", fake_grade)
     argv, job_dir = _lifecycle(tmp_path, monkeypatch, case0.run_job)
     assert case0.main(argv + ["--mode", "tool-feedback", "--retries", "2"]) == 0
     m = _metrics(job_dir.with_name("stub-t1-canonical-none-tool-feedback"))
