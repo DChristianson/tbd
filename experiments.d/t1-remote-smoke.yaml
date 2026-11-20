@@ -1,0 +1,31 @@
+# Smoke test for a remote provider: one request to the RunPod serverless
+# endpoint, then grading. It checks the plumbing (credentials reach the worker,
+# the endpoint answers, the attempt is graded and saved), not the model. Used
+# by the remote-provider rows of docs/running.md, "Worker configurations".
+#
+# Credentials: TBD_RUNPOD_ENDPOINT and TBD_RUNPOD_API_KEY in the environment
+# (or .env.runpod in a checkout). A cold endpoint can take a few minutes to
+# answer the first request.
+#
+#   python -m tbd.eval.experiment experiments.d/t1-remote-smoke.yaml --dry-run
+experiment: t1-remote-smoke
+
+models:
+  - { provider: runpod, model: "qwen3.6:27b" }
+
+facts: [contributed]
+
+tasks:
+  - { id: t1, variants: [canonical] }
+
+modes: [one-shot]
+
+samples: 1
+seed: 103
+temperature: 0.7
+num_ctx: 20480
+max_tokens: 16384
+timeout: 1800
+idle_timeout: 600
+random_seeds: 10
+fix_syntax: true

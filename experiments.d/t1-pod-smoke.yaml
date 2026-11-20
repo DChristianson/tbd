@@ -3,13 +3,19 @@
 # plumbing (Ollama starts, the model pulls, a job runs, results sync), not the
 # model. See docs/running.md, "Test the pod runner locally".
 #
+# No facts: with the contributed facts' longer prompt, the 1.5B model loops
+# until it hits max_tokens and never closes its code block, so nothing reaches
+# DASM. Without them it writes a program, which the fixer and DASM then see.
+# It rarely assembles, so racer-check is checked separately, with a reference
+# program (docker/smoke-local.sh, "toolchain").
+#
 #   python -m tbd.eval.podrunner experiments.d/t1-pod-smoke.yaml --no-sync --dry-run
 experiment: t1-pod-smoke
 
 models:
   - { provider: ollama, model: "qwen2.5-coder:1.5b" }
 
-facts: [contributed]
+facts: [none]
 
 tasks:
   - { id: t1, variants: [canonical] }
