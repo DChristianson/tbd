@@ -559,6 +559,11 @@ def _md_cell(text: str) -> str:
     return str(text).replace("|", "\\|").replace("\n", " ")
 
 
+def any_flagged(tables: list[dict]) -> bool:
+    """Whether any table cell carries the flag mark, so the legend is worth printing."""
+    return any(FLAG in str(cell) for t in tables for row in t["rows"] for cell in row)
+
+
 def render_markdown(tables: list[dict], sources: list[str]) -> str:
     out = ["# Grid report", "", "Experiments: " + ", ".join(sources), ""]
     if not tables:
@@ -569,7 +574,8 @@ def render_markdown(tables: list[dict], sources: list[str]) -> str:
                 "|" + "---|" * len(t["headers"])]
         out += ["| " + " | ".join(map(_md_cell, r)) + " |" for r in t["rows"]]
         out += [""] + t["notes"] + [""]
-    out += [f"{FLAG} flagged: incomplete job; see the flags column.", ""]
+    if any_flagged(tables):
+        out += [f"{FLAG} flagged: incomplete job; see the flags column.", ""]
     return "\n".join(out)
 
 

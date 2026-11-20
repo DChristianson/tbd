@@ -4,6 +4,10 @@
 # plumbing (Ollama starts, the model pulls, a job runs, results sync), not the
 # model. See docs/running.md, "Test the pod runner locally".
 #
+# num_ctx 4096 fits the short prompt and the 2048-token reply. At 8192,
+# llama3.1 didn't fit in Docker Desktop's default 7.7 GiB VM: the kernel killed
+# Ollama's model server while it loaded (2026-11-20).
+#
 # No facts keeps the prompt short. The program a small model writes rarely
 # assembles, so racer-check is checked separately, with a reference program
 # (docker/smoke-local.sh, "toolchain").
@@ -24,7 +28,7 @@ modes: [one-shot]
 samples: 1
 seed: 103
 temperature: 0.7
-num_ctx: 8192
+num_ctx: 4096
 max_tokens: 2048
 timeout: 900
 random_seeds: 10

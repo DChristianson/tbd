@@ -95,7 +95,11 @@ COPY --chown=tbd:tbd . /opt/tbd
 # EXTRAS=test,eval adds the Anthropic SDK, for runs against Claude.
 ARG EXTRAS=test
 RUN python3 -m venv /opt/venv \
- && /opt/venv/bin/pip install -q --no-cache-dir -e "/opt/tbd[${EXTRAS}]"
+ && /opt/venv/bin/pip install -q --no-cache-dir -e "/opt/tbd[${EXTRAS}]" \
+ && chown tbd:tbd /opt/tbd
+# WORKDIR made /opt/tbd as root, and COPY --chown only changes what it copies,
+# so the chown above gives tbd the folder itself. Without it, tbd couldn't
+# create experiments/ (left out of the image) or pytest's cache there.
 ENV PATH="/opt/venv/bin:${PATH}"
 
 USER tbd
