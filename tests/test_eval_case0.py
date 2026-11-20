@@ -356,3 +356,31 @@ def test_every_job_config_records_its_toolchain(tmp_path, monkeypatch):
     assert json.loads((job_dir / "config.json").read_text())["toolchain"] == tc1
     second = exp / "jobs" / "stub-t1-canonical-none-tool-feedback" / "config.json"
     assert json.loads(second.read_text())["toolchain"] == tc2
+
+
+def test_a_later_pass_keeps_the_first_attempt_category(tmp_path, monkeypatch):
+    """Sample 0 passes on attempt 1. Sample 1 fails attempt 1 (an output mismatch
+    that passed the relaxed tier) and attempt 2, then passes on attempt 3. Its
+    first attempt counts as output_mismatch and as a near miss, not as a pass."""
+    near = Grade(False, "output_mismatch", relaxed={"passed": True})
+    plan = {0: [Grade(True, "pass")],
+            1: [near, Grade(False, "timing"), Grade(True, "pass")]}
+
+    def fake_chat(args, messages, seed, workdir):
+        workdir.mkdir(parents=True, exist_ok=True)
+        return {"message": {"content": "```asm\n  processor 6502\n```"}, "done_reason": "stop"}
+
+    def fake_grade(spec, code, workdir, random_seeds=None):
+        sample = int(workdir.parent.name.split("-")[1])
+        attempt = int(workdir.name.split("-")[1])
+        return {"ok": True, "errors": [], "warnings": []}, plan[sample][attempt - 1]
+
+    monkeypatch.setattr(case0, "chat", fake_chat)
+    monkeypatch.setattr(case0, "grade_program", fake_grade)
+    argv, job_dir = _lifecycle(tmp_path, monkeypatch, case0.run_job)
+    assert case0.main(argv + ["--mode", "tool-feedback", "--retries", "2"]) == 0
+    m = _metrics(job_dir.with_name("stub-t1-canonical-none-tool-feedback"))
+    assert m["passed"] == 2 and m["attempts_total"] == 4
+    assert m["first_attempt_categories"] == {"pass": 1, "output_mismatch": 1}
+    assert m["pass_at_1_first_attempt"] == 0.5
+    assert m["near_misses"] == 1

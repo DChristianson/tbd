@@ -156,14 +156,16 @@ def run_job(args, sample: int, job_dir: Path, log, on_attempt=None) -> dict:
         if on_attempt:
             on_attempt()
         if attempt_no == 1:
-            first = grade.category
+            # How attempt 1 went, kept whatever later attempts do: a sample that
+            # passes on a retry still counts under its first category and near miss.
+            first = "pass" if grade.ok else grade.category
             first_near = grade.near_miss
         if grade.category == "timeout":
             return {"passed": False, "attempts": attempt_no, "first_category": first,
                     "near_miss": first_near}
         if grade.ok:
-            return {"passed": True, "attempts": attempt_no, "first_category": None,
-                    "near_miss": False}
+            return {"passed": True, "attempts": attempt_no, "first_category": first,
+                    "near_miss": first_near}
         messages += [{"role": "assistant", "content": echoed_reply(resp, text, grade)},
                      {"role": "user", "content": feedback(asm_rec, grade)}]
     return {"passed": False, "attempts": budget, "first_category": first,
@@ -408,12 +410,11 @@ def write_metrics(job_dir: Path, args, results: list[dict], status: str, t0: flo
     passed = sum(r["passed"] for r in results)
     firsts: dict[str, int] = {}
     for r in results:
-        key = "pass" if r["passed"] and r["attempts"] == 1 else (r["first_category"] or "pass")
-        firsts[key] = firsts.get(key, 0) + 1
+        firsts[r["first_category"]] = firsts.get(r["first_category"], 0) + 1
     metrics = {
         "status": status, "error": error, "samples_planned": args.samples, "samples_done": done,
         "passed": passed, "pass_rate": passed / done if done else None,
-        "pass_at_1_first_attempt": (sum(r["passed"] and r["attempts"] == 1 for r in results) / done
+        "pass_at_1_first_attempt": (sum(r["first_category"] == "pass" for r in results) / done
                                     if done else None),
         "first_attempt_categories": firsts,
         "near_misses": sum(bool(r.get("near_miss")) for r in results),
