@@ -81,6 +81,22 @@ only once one is added (aws CLI, rclone, or Python's boto3). Built-in S3
 sync would also let the target be an S3-compatible service such as R2 or
 MinIO, and be tested locally against MinIO.
 
+**Not built (tbd-f78.30): a run code for each launch.** Today a rerun can
+overwrite earlier results at the sync target. Locally, an experiment's folder
+name comes from its definition, and it doubles as the key for resuming:
+running the same definition again skips the jobs already done. A pod starts
+with an empty `experiments/`, though, so it can't see what an earlier launch
+synced. Launching the same definition again reruns every job under the same
+names and copies over the earlier files at the target. This happened in a
+local smoke rerun on 2026-11-20.
+
+The fix: each pod-runner launch gets a run code, such as
+`20261120T1930Z-a3f9c1` (the UTC time plus six random hex digits), and syncs
+to `<target>/<experiment>/<run code>/`. Each job's `config.json` and the
+manifest record the code, so a result can be traced to its launch. Local runs
+and resuming are unchanged. Resuming a pod run from an earlier launch's
+results would be a later addition.
+
 ## How the pod stops
 
 **Works now:** the pod runner exits when the queue is empty, or when
