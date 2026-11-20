@@ -136,3 +136,11 @@ source_type = "official_doc"
 source_ref = "Stella 7.0c source, stella-core/vendor/stella/src/common/PaletteHandler.cxx: ourNTSCPalette ($46 #c84848, $1E #fcfc54, $C4 #328432, $84 #2d32b8) and ourPALPalette ($64 #a73d4d, $2C #f7e27f, $54 #169216, $B4 #2d65bf); hue names as in F014 and F015"
 license = "GPL-2.0-or-later (Stella; see stella-core/vendor/stella/NOTICE.md)"
 confidence = 0.85
+
+[[fact]]
+fact_id = "F018"
+text = "A 4K ROM image must be exactly 4096 bytes, $F000-$FFFF. DASM writes every byte from the first ORG to the last one assembled, so start with 'org $F000', put all code and data after it, and end with the three vectors at $FFFA-$FFFF: nothing may come after them."
+source_type = "official_doc"
+source_ref = "vendor/racer/crates/sim/src/board.rs Board::new ('The ROM must be 4096 bytes: the stock 4K cartridge'; rejects any other size with 'expected a 4096-byte ROM'); tests/test_assembler.py test_rom_runs_from_the_first_org_to_the_last_byte (DASM 2.20.14.1, -f3: org $F000 with vectors at $FFFA gives 4096 bytes, two bytes after the vectors give 4098, a first org $F800 gives 2048)."
+license = "MIT (racer-check, vendor/racer/LICENSE; tbd tests)"
+confidence = 0.9
