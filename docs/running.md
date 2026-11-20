@@ -7,16 +7,62 @@ that covers it. The design behind it is in `docs/design/execution.md`.
 Statements about RunPod and other outside services that haven't been tried
 from this project are marked *(unchecked)*.
 
-## Three ways to run
+## Worker configurations
 
-| Where the runner runs | Where the model runs | Status |
-|---|---|---|
-| Laptop or dev container | Ollama on the Mac | Works. Slow for large models. |
-| Laptop or dev container | RunPod serverless endpoint (`provider: runpod`) | Works. Stops when the laptop stops. In the 2026-11-19 grid, workers ranged from 55 to 145 tokens per second, and went cold when idle between attempts. |
-| A RunPod GPU pod | Ollama inside the same pod | The pod runner (`tbd.eval.podrunner`). Code and tests exist; the image has never been built or run on a pod. |
+A worker is what runs the experiment runner and the grader (DASM and
+racer-check). Those only need a CPU. The model can run somewhere else, so a
+configuration is three choices:
 
-The first two use `python -m tbd.eval.experiment <definition.yaml>` from a
-checkout (README.md, "Building"). The rest of this guide is about the third.
+- **Where the worker runs:** a local machine (in Docker, or directly from a
+  checkout), or a RunPod pod.
+- **Where the model comes from:** a remote provider, Ollama on the host
+  machine, or Ollama inside the worker's container.
+- **What the model runs on:** CPU or GPU.
+
+Each model in a definition names its provider: `ollama` (at the URL in
+`OLLAMA_HOST`), `runpod` (a serverless endpoint) or `anthropic`. So, apart
+from the one row blocked on tbd-f78.28, moving between configurations means
+changing the image, its command, the environment and the definition, not the
+code. Every row except the out-of-scope one has a smoke-test bead under
+tbd-f78.29.
+
+| Worker | Model from | Model runs on | Image and setting | Status | Smoke test |
+|---|---|---|---|---|---|
+| Local | Remote provider: RunPod serverless, or the Anthropic API | The provider's hardware | `worker`, with the provider's credentials as environment variables (`TBD_RUNPOD_ENDPOINT` and `TBD_RUNPOD_API_KEY`, or `TBD_ANTHROPIC_API_KEY`). For Anthropic, build with `--build-arg EXTRAS=test,eval`, because the default image has no Anthropic SDK. | Works from a checkout; not yet tried in the image | tbd-f78.29.1 |
+| Local | Ollama on the host, outside Docker | The host's GPU, if Ollama can use it there (Metal on a Mac, NVIDIA on Linux), else its CPU | `worker`, with `OLLAMA_HOST=http://host.docker.internal:11434`. Ollama on the host must listen beyond localhost (`OLLAMA_HOST=0.0.0.0` where Ollama runs). On Linux, `host.docker.internal` also needs `--add-host=host.docker.internal:host-gateway` *(unchecked)*. | Works from a checkout; not yet tried in the image | tbd-f78.5 |
+| Local | Ollama in the container | CPU | `pod-runner` | Not yet tried | tbd-f78.27 |
+| Local | Ollama in the container | GPU | — | Out of scope (see below) | — |
+| RunPod pod | Remote provider | A CPU pod for the worker *(unchecked)*; the provider's hardware for the model | The `worker` image with its command set to `python -m tbd.eval.podrunner` (without `--serve-ollama`) | Blocked: the pod runner accepts only `ollama` models (tbd-f78.28). Also needs a published image (tbd-f78.7). | tbd-f78.29.2 |
+| RunPod pod | Ollama in the container | CPU pod *(unchecked)* | `pod-runner` | Not yet tried; needs a published image (tbd-f78.7) | tbd-f78.29.3 |
+| RunPod pod | Ollama in the container | GPU pod | `pod-runner` | Not yet tried; needs a published image (tbd-f78.7) | tbd-f78.29.4 |
+
+**The basic smoke test** for each configuration: one sample of T1 with a small
+model runs to completion, and its results load in `tbd.eval.report`. The
+Ollama rows use `experiments.d/t1-pod-smoke.yaml`. The remote-provider rows
+need a smoke definition that sends one cheap request, which tbd-f78.29.1 will
+write. The test doesn't need S3 sync or self-stop. A pod's results can stay on
+its volume, and the pod is stopped by hand.
+
+**A local worker with Ollama in the container on a GPU is out of scope,**
+because it isn't available everywhere:
+
+- Docker Desktop on a Mac can't give containers the GPU. Containers run in a
+  Linux VM, and Metal exists only on macOS. Docker says so itself
+  ([Docker, 2026](https://www.docker.com/blog/docker-model-runner-vllm-metal-macos/)).
+  On a Mac, the GPU is reached through Ollama on the host (the second row).
+- A Linux machine with an NVIDIA GPU can pass it to Docker with `--gpus all`
+  *(unchecked)*.
+- Podman with its libkrun provider can give Mac containers the GPU through
+  Vulkan. Red Hat measured llama.cpp that way at about 77% of native Metal
+  speed ([Red Hat, 2025](https://developers.redhat.com/articles/2025/06/05/how-we-improved-ai-inference-macos-podman-containers)).
+  It needs a Vulkan build of Ollama and patched drivers in the image, and
+  is experimental. Not tried here.
+
+From a checkout, without Docker, the first two rows are how experiments have
+been run so far. The 2026-11-19 facts grid used RunPod serverless. Its
+serverless GPU workers ranged from 55 to 145 tokens per second, and went cold
+when idle between attempts. The rest of this guide is mostly about the pod
+runner.
 
 ## What the pod-runner image contains
 
@@ -200,8 +246,9 @@ does.
 
 | Bead | What |
 |---|---|
+| tbd-f78.29 | Smoke-test each worker configuration (one child bead per row of the table above, except the out-of-scope one) |
+| tbd-f78.28 | Pod runner with any provider; serve Ollama only when needed |
 | tbd-f78.7 | Build, test and publish the image from GitHub Actions |
 | tbd-f78.25 | Fetch definitions at start; partial definitions |
 | tbd-f78.26 | S3 client in the image; built-in S3 sync; test against MinIO |
 | tbd-f78.22 | Self-stop through RunPod's API, idle watchdog, outside check |
-| tbd-f78.27 | Try the local test end to end, and keep it working |
