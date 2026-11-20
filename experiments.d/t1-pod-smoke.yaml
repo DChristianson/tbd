@@ -1,19 +1,18 @@
-# Smoke test for the pod runner: one sample of T1 canonical with a small model,
-# small enough to run on a laptop's CPU in the pod-runner image. It checks the
+# Smoke test for the pod runner: one sample of T1 canonical, one-shot, no
+# facts, with llama3.1 (8B), small enough to run on a laptop's CPU in the
+# pod-runner image. It checks the
 # plumbing (Ollama starts, the model pulls, a job runs, results sync), not the
 # model. See docs/running.md, "Test the pod runner locally".
 #
-# No facts: with the contributed facts' longer prompt, the 1.5B model loops
-# until it hits max_tokens and never closes its code block, so nothing reaches
-# DASM. Without them it writes a program, which the fixer and DASM then see.
-# It rarely assembles, so racer-check is checked separately, with a reference
-# program (docker/smoke-local.sh, "toolchain").
+# No facts keeps the prompt short. The program a small model writes rarely
+# assembles, so racer-check is checked separately, with a reference program
+# (docker/smoke-local.sh, "toolchain").
 #
 #   python -m tbd.eval.podrunner experiments.d/t1-pod-smoke.yaml --no-sync --dry-run
 experiment: t1-pod-smoke
 
 models:
-  - { provider: ollama, model: "qwen2.5-coder:1.5b" }
+  - { provider: ollama, model: "llama3.1" }
 
 facts: [none]
 

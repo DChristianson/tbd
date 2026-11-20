@@ -12,7 +12,7 @@
 #              file: ENV_FILE, default .env.runpod in the repository root.
 #   host       worker image, model from Ollama on this machine (tbd-f78.5).
 #              Needs Ollama listening beyond localhost (OLLAMA_HOST=0.0.0.0)
-#              with qwen2.5-coder:1.5b pulled.
+#              with llama3.1 pulled.
 #   container  pod-runner image, Ollama inside the container on CPU (tbd-f78.27).
 #
 # Before its cells, each image runs a toolchain check: T1's reference program

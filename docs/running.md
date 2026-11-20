@@ -120,8 +120,9 @@ once more, then runs `--on-exit` (`TBD_ON_EXIT`). Exit status:
 **Not yet tried end to end (tbd-f78.27).** These steps should work with Docker
 Desktop on a Mac. They run Ollama on the CPU inside the container, with a
 model small enough for that. The smoke definition
-`experiments.d/t1-pod-smoke.yaml` runs one sample of T1 with
-`qwen2.5-coder:1.5b`; it checks the plumbing, not the model.
+`experiments.d/t1-pod-smoke.yaml` runs one sample of T1, one-shot and with
+no facts, with `llama3.1` (8B); it checks the plumbing, not the model.
+`docker/smoke-local.sh` runs this and the other local configurations.
 
 Check the definition without Docker, from a checkout:
 
