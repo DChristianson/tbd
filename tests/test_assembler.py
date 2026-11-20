@@ -43,3 +43,20 @@ def test_bad_source_reports_errors_not_a_rom(tmp_path):
     assert not result.ok
     assert result.errors
     assert result.rom is None
+
+
+@pytest.mark.parametrize("org, after_vectors, size", [
+    ("$F000", "", 4096),                      # org $F000 ... vectors at $FFFA: exactly 4K
+    ("$F000", "Extra\n    rti\n    rti\n", 4098),   # code after the vectors runs past $FFFF
+    ("$F800", "", 2048),                      # a later first ORG makes a smaller image
+])
+def test_rom_runs_from_the_first_org_to_the_last_byte(tmp_path, org, after_vectors, size):
+    """DASM's raw output (-f3) holds every byte from the first ORG to the last
+    one assembled; nothing pads it to a cartridge size. Backs fact F018."""
+    src = tmp_path / "layout.asm"
+    src.write_text(f"    processor 6502\n    org {org}\nReset\n    jmp Reset\n"
+                   f"    org $FFFA\n    .word Reset\n    .word Reset\n    .word Reset\n"
+                   f"{after_vectors}")
+    result = assemble(src)
+    assert result.ok, result.errors
+    assert len(result.rom) == size
