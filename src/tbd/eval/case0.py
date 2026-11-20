@@ -57,7 +57,7 @@ from pathlib import Path
 from tbd.eval import facts, tasks
 from tbd.eval.checks import grade_attempt
 from tbd.eval.grading import Grade, extract_code
-from tbd.eval.jobrecords import console_log, toolchain
+from tbd.eval.jobrecords import compute, console_log, toolchain
 from tbd.eval.models import (IDLE_TIMEOUT_S, MAX_OUTPUT_TOKENS, OLLAMA, REQUEST_TIMEOUT_S,
                              RequestTimeout, model_digest, model_template, ollama_chat)
 from tbd.paths import RACER_CHECK, ROOT
@@ -96,11 +96,14 @@ def echoed_reply(resp: dict, text: str, grade: Grade):
 # ---------------------------------------------------------------- run
 
 def git_sha() -> str:
+    """The checkout's commit; in an image built without .git, the TBD_GIT_SHA it was
+    built with (docker/worker.Dockerfile's GIT_SHA build argument)."""
     try:
-        return subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
-                              text=True).stdout.strip()
+        sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
+                             text=True).stdout.strip()
     except OSError:
-        return ""
+        sha = ""
+    return sha or os.environ.get("TBD_GIT_SHA", "")
 
 
 def run_job(args, sample: int, job_dir: Path, log, on_attempt=None) -> dict:
@@ -332,6 +335,7 @@ def main(argv: list[str] | None = None) -> int:
         "model_digest": None if anthropic_run or runpod_run else model_digest(args.model),
         "runtime": "anthropic-api" if anthropic_run else "ollama",
         "model_host": model_host(args),
+        "compute": compute(),
         "facts": args.facts, "fact_snapshot": facts.snapshot(args.selected_facts),
         "fact_ids": args.fact_ids, "task": args.task, "variant": args.variant,
         "mode": args.mode, "samples": args.samples,

@@ -28,6 +28,17 @@ def toolchain() -> dict:
             "racer_check": {"path": str(RACER_CHECK), "sha256": file_sha256(RACER_CHECK)}}
 
 
+def compute() -> dict:
+    """The machine that served the model, as far as whoever started the job knows it.
+
+    case0 can't tell this itself: on the Mac or in the dev container the model runs
+    elsewhere, so a GPU seen locally would be the wrong one. The pod runner
+    (tbd.eval.podrunner) runs Ollama beside case0, so it sets TBD_GPU (nvidia-smi's
+    GPU name) and TBD_HOST_ID (the RunPod pod id, or the hostname). Unset is None."""
+    return {"gpu": os.environ.get("TBD_GPU") or None,
+            "host_id": os.environ.get("TBD_HOST_ID") or None}
+
+
 def dasm_version() -> str | None:
     """e.g. "2.20.14.1", from the banner `dasm` prints when run with no arguments."""
     if shutil.which(DASM_BIN) is None:

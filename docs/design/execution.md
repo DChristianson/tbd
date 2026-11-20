@@ -24,8 +24,9 @@ The worker talks to the model over an OpenAI-compatible HTTP endpoint (Ollama,
 llama.cpp server and vLLM all expose one). Moving to the cloud then means
 changing the endpoint and where the worker runs, not the harness.
 
-The worker image and the dev container share a Dockerfile base stage, so the
-toolchain (DASM version, `stella-core` build) is identical in both.
+The worker image and the dev container have separate Dockerfiles, but they
+pin the same DASM and Rust versions, and a test checks that the pins agree.
+See "Worker image" below.
 
 ## Execution contract
 
@@ -74,7 +75,11 @@ API), `runtime`, `facts`, `fact_snapshot`, `task`, `variant`, `mode`,
 `effort`, `thinking`, `retries` (0 for one-shot), `max_tokens`, `num_ctx`,
 `request_timeout_s`, `prompt`, `grader`, `task_dir`, `random_seeds`,
 `fix_syntax`, `check_files`, `check_py`, `toolchain` (the job's own: `dasm`, `racer_check` {`path`,
-`sha256`}, `image_digest`; see Toolchain below).
+`sha256`}, `image_digest`; see Toolchain below), `model_host` (the Ollama URL
+or RunPod endpoint), `compute` {`gpu`, `host_id`}. `compute` describes the
+machine that served the model. case0 can't see that machine, so it copies
+`TBD_GPU` and `TBD_HOST_ID` from its environment; the pod runner sets both,
+and elsewhere they are null.
 
 **metrics.json**, rewritten after every sample: `status` (`running`,
 `completed`, `interrupted` on Ctrl-C, `failed` with `error` on a crash),
@@ -92,7 +97,8 @@ per-attempt categories, and the report recomputes from it.
 hashes the binary that graded (the vendored source is pinned by `git_sha`);
 `image_digest` is read from `TBD_IMAGE_DIGEST`, which whoever starts the
 container sets, since an image can't know its own digest at build time. The
-dev container doesn't set it, so it's null there. Anything that can't be
+dev container doesn't set it, so it's null there. An image has no `.git`,
+so there `git_sha` is the `GIT_SHA` it was built with (`TBD_GIT_SHA`). Anything that can't be
 determined is null, never a guess. The manifest records the toolchain of the
 experiment's first job; each job's config.json records its own, so a later job
 graded by a different build is visible. The report treats the toolchain as a
@@ -230,6 +236,161 @@ the single-agent baseline exists.
 The `ComputeProvider` interface (`submit` / `status` / `collect_results` /
 `cancel`) is extracted when the second provider arrives, from two working
 implementations, not designed up front.
+
+## Worker image
+
+The worker image (tbd-f78.3) is the harness without a model: Python with tbd
+installed, DASM and racer-check. It needs no GPU. It is the `worker` stage of
+`docker/worker.Dockerfile`, which is separate from the dev container's
+`.devcontainer/Dockerfile`, so changes to one image can't break the other.
+A `build` stage compiles DASM and racer-check, and the worker, on
+`debian:bookworm-slim`, copies in only the two binaries. Neither Rust nor a
+compiler ships in it. Both Dockerfiles pin the same DASM and Rust versions,
+so a job graded in either uses the same tools. Because the pins are written
+twice, `tests/test_podrunner.py` checks that they agree.
+
+```bash
+docker build -f docker/worker.Dockerfile --target worker \
+    --build-arg GIT_SHA=$(git rev-parse HEAD) -t tbd-worker .
+docker run --rm -e OLLAMA_HOST=http://host.docker.internal:11434 \
+    -v "$PWD/experiments:/opt/tbd/experiments" \
+    tbd-worker python -m tbd.eval.experiment experiments.d/t1-baseline.yaml
+```
+
+The checkout is copied to `/opt/tbd` and installed editable, because tbd finds
+`tasks/`, `facts/` and `vendor/` beside its source.
+`docker/worker.Dockerfile.dockerignore` keeps `experiments/`, build output,
+`stella-core/` and `.env*` files out of the image. BuildKit reads it only
+for this Dockerfile. The optional `stella-core` emulator isn't built, since the eval
+doesn't use it. Build on the Mac with `--platform linux/amd64` for an image
+that will run on a cloud GPU.
+
+## Pod runner
+
+Experiments run from the laptop against a RunPod serverless endpoint stop
+when the laptop does. Serverless also spends much of its time outside
+generation (cold starts, queueing, slow or idle workers; see tbd-f78.24). The
+pod runner instead puts the model and the harness in one container on one
+GPU pod. It runs a queue of experiment definitions there and copies the
+results out as each job finishes, so no laptop is involved.
+
+It is the `pod-runner` stage of `docker/worker.Dockerfile`: the worker plus Ollama,
+pinned by version and hash. Its entrypoint, `python -m tbd.eval.podrunner
+--serve-ollama`, does the following (the module docstring has the details):
+
+1. It loads and checks every definition before anything starts. Each model
+   must use the `ollama` provider, because the pod serves its models itself.
+2. It starts `ollama serve` on 127.0.0.1 and pulls each model the
+   definitions name. Models aren't baked into the image, so one image serves
+   any definition.
+3. It sets `TBD_GPU` (from `nvidia-smi`, or unset when there is no GPU) and
+   `TBD_HOST_ID` (`RUNPOD_POD_ID`, else the hostname). case0 records both as
+   `compute` in each job's config.json.
+4. It runs the definitions in the order given with `tbd.eval.experiment`, so
+   parallel, gate and resume behave as they do on the laptop.
+5. After each job, and after each definition, it copies
+   `experiments/<name>/` to the sync target. It never deletes anything at the
+   target.
+6. It stops when the queue is empty or the maximum lifetime runs out. At the
+   lifetime limit the running jobs get SIGTERM and mark themselves
+   `interrupted`. If they are still running after a grace period, the runner
+   syncs and exits anyway.
+7. Whatever the reason for stopping, it syncs once more and then runs the
+   `--on-exit` command.
+
+An example definition for the pod is `experiments.d/t1-facts-qwen3.6-pod.yaml`.
+A queue can be checked locally without starting anything:
+
+```bash
+python -m tbd.eval.podrunner experiments.d/t1-facts-qwen3.6-pod.yaml --no-sync --dry-run
+```
+
+### Launching it
+
+These steps haven't been run yet. The image has never been built or started
+on a pod.
+
+1. Build for amd64 and push the image to a registry the pod can pull from
+   (GitHub Actions publishing is tbd-f78.7):
+   `docker build -f docker/worker.Dockerfile --platform linux/amd64 --target pod-runner --build-arg GIT_SHA=$(git rev-parse HEAD) -t ghcr.io/OWNER/tbd-pod-runner:SHA .`
+2. Create a RunPod pod (or a pod template) with that image. Its container
+   start command holds the runner's arguments, e.g.
+   `experiments.d/t1-facts-qwen3.6-pod.yaml --sync /workspace/results --max-lifetime 6h`.
+   The same settings can instead come from environment variables:
+   `TBD_DEFINITIONS`, `TBD_SYNC` or `TBD_SYNC_COMMAND`, `TBD_MAX_LIFETIME`
+   and `TBD_ON_EXIT`.
+3. Set `OLLAMA_NUM_PARALLEL` to match the definition's `parallel` (see "GPU
+   size" below). Optionally set `OLLAMA_MODELS=/workspace/ollama`, so that a
+   network volume keeps the pulled weights for the next pod.
+4. Don't expose port 11434. Ollama has no authentication.
+5. Read progress in the pod's logs. Read results at the sync target.
+
+Definitions in the image are the ones in `experiments.d/` when it was built.
+A new definition means a new image, or a definition file put on a mounted
+volume and named by its path.
+
+### Stopping the pod itself
+
+The runner exits when it is done. Exiting alone probably doesn't stop the
+bill, though. A RunPod pod's container is restarted when its process exits
+(to verify). The restarted runner would then pull the models again and find
+nothing left to run, so the pod would keep billing while doing nothing
+useful.
+
+The design is that `--on-exit` stops the pod through RunPod's API, using the
+pod's own id:
+
+```bash
+--on-exit 'curl -fsS -X POST -H "Authorization: Bearer $RUNPOD_API_KEY" \
+    https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID/stop'
+```
+
+This is not built or tested here. Three things need checking before it is
+relied on, and tbd-f78.22 owns that spike:
+
+- Whether RunPod puts a pod-scoped `RUNPOD_API_KEY` in the pod, or one has to
+  be added as a RunPod secret. The key should be the narrowest scope that
+  can stop the pod, and it must never be in the image.
+- Stop or terminate. A stopped pod still bills for its volume disk.
+  Termination bills nothing more, but it deletes the pod's own volume. Only
+  terminate when the results are synced somewhere off the pod.
+- A watchdog for a runner that hangs or crashes before its on-exit command
+  runs. One option is a second timer in the start command that stops the pod
+  regardless, a little after `--max-lifetime`.
+
+### What it costs to leave running
+
+A pod bills by the hour from start until it is stopped, whether it is
+generating or idle. RunPod's pricing page (fetched 2026-11-19) lists 48 GB
+cards (RTX A6000, A40) at about $0.33-0.69/h, an L40S (48 GB) at
+$0.79-1.09/h, and 24 GB cards (RTX 3090, 4090) at $0.22-0.89/h. The lower
+figure is Community Cloud and the higher is Secure Cloud. A forgotten 48 GB
+pod therefore costs roughly $8-17 a day, plus volume storage. That is why
+`--max-lifetime` defaults to 12 h and the on-exit stop matters. For
+comparison, tbd-f78.24 estimates the generation for the whole qwen3.6:27b T1
+facts grid at 1.1-1.5 h on one pod.
+
+### Open decisions
+
+- **Storage for results.** `--sync DIR` is built. It covers a RunPod network
+  volume mounted at `/workspace` (this survives termination, but it's tied
+  to one region) and any other mounted directory. `--sync-command` runs any
+  copy program, so S3-compatible storage (an S3 or R2 bucket) works with
+  e.g. `'aws s3 sync {src} s3://BUCKET/experiments/{name}'` or `rclone`.
+  Neither tool is in the image, so adding one is part of choosing it, and
+  its keys come from RunPod secrets. A results branch in git is the third
+  option from the bead. It isn't built, because it needs push credentials
+  on the pod.
+- **GPU size.** qwen3.6:27b at `num_ctx` 20480 needs its own KV cache for each
+  concurrent request. With parallel > 1 (`OLLAMA_NUM_PARALLEL` and the
+  definition's `parallel`), a 48 GB-class card is needed. A 24 GB card runs
+  one request at a time. The choice trades the hourly rate against wall
+  time, and the rates above should be compared with what serverless costs
+  for the same grid.
+- **Ollama version.** The image pins Ollama 0.40.13. Rows are only comparable
+  with the Mac's runs if the runtime and weights match (tbd-f78.2). Each pod
+  job records its model digest, which can be compared with the Mac's.
+  Serverless jobs record no digest.
 
 ## GitHub Actions
 
