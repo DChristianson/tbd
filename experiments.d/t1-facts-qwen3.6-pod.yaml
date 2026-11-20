@@ -1,0 +1,40 @@
+# t1-facts-qwen3.6-runpod.yaml for the pod runner (tbd.eval.podrunner): the
+# same grid, served by Ollama inside the pod instead of a serverless endpoint.
+# Launching it: docs/design/execution.md, "Pod runner".
+#
+# Two settings differ from the serverless definition:
+# - random_seeds is left at the check files' 100. Grading pauses cost nothing
+#   on a pod, because there is no endpoint to go cold, so the full check is
+#   affordable.
+# - parallel is 1. Each concurrent request needs its own KV cache at num_ctx
+#   20480, so a 24 GB card runs one request at a time. On a 48 GB card, set
+#   the pod's OLLAMA_NUM_PARALLEL=2 and parallel: 2 here.
+#
+# seed is 103, as in the serverless run, so each sample gets the same request
+# and the two hosts can be compared sample by sample.
+#
+#   python -m tbd.eval.podrunner experiments.d/t1-facts-qwen3.6-pod.yaml --no-sync --dry-run
+experiment: t1-facts-qwen3.6-pod
+
+models:
+  - { provider: ollama, model: "qwen3.6:27b" }
+
+facts: [none, contributed]
+
+tasks:
+  - { id: t1, variants: [canonical, blue, split-lr] }
+
+gate: [t1/canonical, t1/blue]
+
+modes: [tool-feedback]
+
+samples: 5
+seed: 103
+temperature: 0.7
+num_ctx: 20480
+max_tokens: 16384
+retries: 3
+timeout: 1800
+idle_timeout: 300
+
+parallel: 1

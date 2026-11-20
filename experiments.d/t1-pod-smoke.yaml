@@ -1,0 +1,26 @@
+# Smoke test for the pod runner: one sample of T1 canonical with a small model,
+# small enough to run on a laptop's CPU in the pod-runner image. It checks the
+# plumbing (Ollama starts, the model pulls, a job runs, results sync), not the
+# model. See docs/running.md, "Test the pod runner locally".
+#
+#   python -m tbd.eval.podrunner experiments.d/t1-pod-smoke.yaml --no-sync --dry-run
+experiment: t1-pod-smoke
+
+models:
+  - { provider: ollama, model: "qwen2.5-coder:1.5b" }
+
+facts: [contributed]
+
+tasks:
+  - { id: t1, variants: [canonical] }
+
+modes: [one-shot]
+
+samples: 1
+seed: 103
+temperature: 0.7
+num_ctx: 8192
+max_tokens: 2048
+timeout: 900
+random_seeds: 10
+fix_syntax: true

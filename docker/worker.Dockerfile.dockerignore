@@ -1,0 +1,28 @@
+# Build context of docker/worker.Dockerfile only (BuildKit reads
+# <Dockerfile>.dockerignore beside the Dockerfile). The worker copies the
+# checkout; keep out what isn't source, what is built per platform, and
+# anything secret.
+.git
+.beads
+.claude
+.codex
+.cursor
+.agents
+.vscode
+.devcontainer
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+.pytest_cache
+**/.DS_Store
+# Eval output: never baked into an image.
+experiments
+# Per-platform build output (the image builds its own).
+vendor/racer/target
+vendor/racer/target-linux
+# Optional reference emulator; the worker doesn't build it.
+stella-core
+# Local secrets (API keys).
+**/.env*
