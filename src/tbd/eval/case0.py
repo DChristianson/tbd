@@ -31,8 +31,10 @@ The contract in full: docs/design/execution.md, "Execution contract".
             response.md        the reply text
             thinking.md        the model's thinking, if any
             stream.jsonl       streamed chunks as received
-            prog.asm           extracted program (absent if none)
-            assemble.json      DASM result
+            prog.asm           extracted program (absent if none); with --fix-syntax on,
+                               the fixed program when the fixer changed it
+            prog.orig.asm      the extracted program, when the fixer changed it
+            assemble.json      DASM result (assemble.orig.json: the extracted program's)
             <check>.toml       each check file run (and any accepted-color re-run)
             <check>.result.json  racer-check's raw JSON
             attempt.json       the attempt record
@@ -53,7 +55,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from tbd.eval import facts, tasks
-from tbd.eval.checks import grade_program
+from tbd.eval.checks import grade_attempt
 from tbd.eval.grading import Grade, extract_code
 from tbd.eval.jobrecords import console_log, toolchain
 from tbd.eval.models import (IDLE_TIMEOUT_S, MAX_OUTPUT_TOKENS, OLLAMA, REQUEST_TIMEOUT_S,
@@ -119,6 +121,7 @@ def run_job(args, sample: int, job_dir: Path, log, on_attempt=None) -> dict:
         text = resp.get("message", {}).get("content", "")
         thinking = resp.get("message", {}).get("thinking", "")
         code = extract_code(text)
+        fix_rec = None
         empty = {"ok": False, "errors": [], "warnings": []}
         if "error" in resp:
             asm_rec, grade = empty, Grade(False, "timeout", detail=resp["error"])
@@ -133,12 +136,16 @@ def run_job(args, sample: int, job_dir: Path, log, on_attempt=None) -> dict:
             asm_rec, grade = {"ok": False, "errors": [], "warnings": []}, Grade(False, "no_code")
             workdir.mkdir(parents=True, exist_ok=True)
         else:
-            asm_rec, grade = grade_program(args.spec, code, workdir, args.random_seeds)
+            asm_rec, grade, fix_rec = grade_attempt(args.spec, code, workdir, args.random_seeds,
+                                                    args.fix_syntax == "on")
         record = {
             "sample": sample, "seed": seed, "attempt_no": attempt_no,
             "prompt": messages[-1]["content"], "response": text, "thinking": thinking,
             "done_reason": resp.get("done_reason"), "code": code,
             "fact_ids_in_context": list(args.fact_ids), "assemble": asm_rec, "grade": grade.to_dict(),
+            # With --fix-syntax on and a program: assembled as written / after the
+            # fix, and the rules that fired (tbd.eval.fixer.assemble_with_fixer).
+            "fix": fix_rec,
             "tokens": {"prompt": resp.get("prompt_eval_count"), "output": resp.get("eval_count"),
                        "chunks_received": resp.get("chunks"),
                        "tokens_per_s": round(resp["eval_count"] / (resp["eval_duration"] / 1e9), 1)
@@ -249,6 +256,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="random power-on states each check runs, instead of the check "
                         "file's random_seeds (fewer grade faster; regrade.py can redo "
                         "saved attempts with the full count)")
+    p.add_argument("--fix-syntax", choices=("on", "off"), default="off",
+                   help="rewrite a program DASM rejects toward DASM syntax and grade that "
+                        "(tbd.eval.fixer); the model's program is kept as prog.orig.asm")
     p.add_argument("--think", choices=("on", "off", "default"), default="default",
                    help="Ollama think flag for reasoning models")
     p.add_argument("--experiment", default=None)
@@ -335,6 +345,7 @@ def main(argv: list[str] | None = None) -> int:
         "task_dir": str(args.spec.dir.relative_to(ROOT)),
         # None: each check file's own random_seeds.
         "random_seeds": args.random_seeds,
+        "fix_syntax": args.fix_syntax == "on",
         "check_files": args.spec.check_files,
         "check_py": args.spec.module is not None,
         # Per job: the manifest only has the experiment's first job's toolchain.

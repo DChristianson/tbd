@@ -15,10 +15,13 @@ Per cell:
     pass@budget   samples that passed within the attempt budget (1 + retries
                   for tool-feedback; the same as pass@1 for one-shot)
     first-attempt categories, near misses (first attempt)
+    assembled     attempts DASM took as the model wrote them; with the syntax
+                  fixer on (fix_syntax), also the attempts it took after the
+                  fix, which are the ones that reached the checks
     cost to pass  mean attempts per passing sample, output tokens, wall time,
                   API cost
     settings      digest, fact_snapshot, num_ctx, max_tokens, temperature,
-                  retries, effort, think, and the toolchain that graded: dasm
+                  retries, effort, think, fix_syntax, and the toolchain that graded: dasm
                   (version), racer_check (sha256 of the binary, not its path,
                   which differs between Mac and container), image (container
                   digest); "-" where a config doesn't record it. Only the ones
@@ -51,7 +54,7 @@ from pathlib import Path
 
 FACT_CONDITIONS = ("none", "contributed", "discovered", "both")
 SETTING_KEYS = ("digest", "fact_snapshot", "num_ctx", "max_tokens", "temperature", "retries",
-                "effort", "think", "dasm", "racer_check", "image")
+                "effort", "think", "fix_syntax", "dasm", "racer_check", "image")
 DIGEST_CHARS = 12
 FLAG = "\u2020"  # dagger
 # A running job rewrites metrics.json after every attempt, and one attempt is at most
@@ -124,6 +127,8 @@ def job_settings(cfg: dict) -> dict:
            "num_ctx": cfg.get("num_ctx"), "max_tokens": cfg.get("max_tokens"),
            "temperature": cfg.get("temperature"), "retries": cfg.get("retries"),
            "effort": cfg.get("effort"), "think": think, "host": cfg.get("model_host"),
+           # Configs from before the fixer existed ran without it.
+           "fix_syntax": "on" if cfg.get("fix_syntax") else "off",
            **toolchain_settings(cfg)}
     return {k: "-" if v is None else str(v) for k, v in raw.items()}
 
@@ -156,6 +161,14 @@ def _ok(attempt: dict) -> bool:
     return bool((attempt.get("grade") or {}).get("ok"))
 
 
+def assembled(attempt: dict) -> tuple[bool, bool]:
+    """(DASM took the program as the model wrote it, DASM took the program
+    that was graded). The two differ only when the syntax fixer ran."""
+    after = bool((attempt.get("assemble") or {}).get("ok"))
+    fix = attempt.get("fix")
+    return (bool(fix["assembled_as_written"]) if fix else after), after
+
+
 def summarize_samples(attempts: list[dict]) -> list[dict]:
     """One outcome per sample: first-attempt category, passed, attempts to pass, tokens."""
     by_sample: dict = {}
@@ -175,6 +188,8 @@ def summarize_samples(attempts: list[dict]) -> list[dict]:
             "passed": bool(passing),
             "attempts_to_pass": passing[0].get("attempt_no", 1) if passing else None,
             "attempts": len(rows),
+            "assembled_as_written": sum(assembled(a)[0] for a in rows),
+            "assembled_after_fix": sum(assembled(a)[1] for a in rows),
             "output_tokens": sum((a.get("tokens") or {}).get("output") or 0 for a in rows),
             "wall_ms": sum(a.get("wall_ms") or 0 for a in rows),
             "cost_usd": (sum(a["cost_usd"] for a in rows if a.get("cost_usd") is not None)
@@ -280,6 +295,8 @@ def aggregate_cell(key: tuple, jobs: list[dict]) -> dict:
         "mean_attempts_to_pass": (sum(s["attempts_to_pass"] for s in passes) / len(passes)
                                   if passes else None),
         "attempts_total": sum(s["attempts"] for s in samples),
+        "assembled_as_written": sum(s["assembled_as_written"] for s in samples),
+        "assembled_after_fix": sum(s["assembled_after_fix"] for s in samples),
         "output_tokens": sum(s["output_tokens"] for s in samples),
         "wall_ms": sum(s["wall_ms"] for s in samples),
         "cost_usd": sum(costs) if costs else None,
@@ -369,7 +386,8 @@ def _pct(n: int, d: int) -> str:
 def detail_table(cells: list[dict]) -> dict:
     varying = varying_settings(cells)
     headers = (["model", "facts", "task", "variant", "mode", "samples", "pass@1",
-                "pass@budget", "first-attempt categories", "near miss", "attempts/pass",
+                "pass@budget", "first-attempt categories", "near miss", "assembled",
+                "attempts/pass",
                 "output tokens", "wall", "cost"] + varying + ["flags"])
     rows = []
     for c in cells:
@@ -381,7 +399,7 @@ def detail_table(cells: list[dict]) -> dict:
             _pct(c["pass_at_1"], n),
             (_pct(c["pass_at_budget"], n) + f" @{'/'.join(map(str, c['budgets']))}"
              if n else "-"),
-            cats, str(c["near_misses"]),
+            cats, str(c["near_misses"]), assembled_value(c),
             "-" if c["mean_attempts_to_pass"] is None else f"{c['mean_attempts_to_pass']:.2f}",
             f"{c['output_tokens']:,}", _wall(c["wall_ms"]),
             "-" if c["cost_usd"] is None else f"${c['cost_usd']:.4f}",
@@ -389,12 +407,22 @@ def detail_table(cells: list[dict]) -> dict:
           + ["; ".join(c["flags"]) or ""])
     constant = [f"{k}={cells[0]['settings'][k]}" for k in SETTING_KEYS
                 if k not in varying and cells]
-    notes = ["first-attempt categories and near misses are over first attempts; "
+    notes = ["assembled counts all attempts: as written, then \u2192 after the syntax fixer "
+             "where fix_syntax is on; "
+             "first-attempt categories and near misses are over first attempts; "
              "attempts/pass is the mean attempt number of the first pass; "
              "tokens, wall and cost are totals over all attempts."]
     if constant:
         notes.append("Same for every cell: " + ", ".join(constant) + ".")
     return {"title": "Cell detail", "headers": headers, "rows": rows, "notes": notes}
+
+
+def assembled_value(cell: dict) -> str:
+    """Attempts DASM took as written, and after the fix where the fixer was on."""
+    text = _frac(cell["assembled_as_written"], cell["attempts_total"])
+    if cell["settings"].get("fix_syntax") == "on":
+        text += f" \u2192 {_frac(cell['assembled_after_fix'], cell['attempts_total'])}"
+    return text
 
 
 def report_tables(cells: list[dict]) -> list[dict]:

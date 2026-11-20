@@ -16,8 +16,8 @@ The definition (docs/design/execution.md, "Experiment definition"):
     modes: [one-shot, tool-feedback]
     samples: 3                     # settings: samples, seed, temperature, retries,
     seed: 42                       #   max_tokens, num_ctx, timeout, idle_timeout,
-    temperature: 0.7               #   think, effort, random_seeds; unset ones take
-                                   #   case0's defaults
+    temperature: 0.7               #   think, effort, random_seeds, fix_syntax;
+                                   #   unset ones take case0's defaults
     parallel: 1                    # jobs at once (default 1; --parallel overrides)
     gate: [t1/canonical, t1/blue]  # optional, see "Gate" below
 
@@ -82,7 +82,12 @@ PROVIDERS = ("ollama", "anthropic", "runpod")
 SETTINGS = {"samples": "--samples", "seed": "--seed", "temperature": "--temperature",
             "retries": "--retries", "max_tokens": "--max-tokens", "num_ctx": "--num-ctx",
             "timeout": "--timeout", "idle_timeout": "--idle-timeout", "endpoint": "--endpoint", "think": "--think", "effort": "--effort",
-            "random_seeds": "--random-seeds"}
+            "random_seeds": "--random-seeds", "fix_syntax": "--fix-syntax"}
+# Settings given as true/false in YAML and as on/off to case0.
+ON_OFF = {"think", "fix_syntax"}
+# config.json keys added after jobs were already recorded: an older job's
+# config without the key ran with this value.
+CONFIG_DEFAULTS = {"fix_syntax": False}
 TOP_KEYS = {"experiment", "models", "facts", "tasks", "modes", "parallel", "gate", *SETTINGS}
 MODEL_KEYS = {"provider", "model", *SETTINGS}
 TASK_KEYS = {"id", "variants"}
@@ -110,7 +115,7 @@ class Job:
         args = ["--provider", self.provider, "--model", self.model, "--task", self.task,
                 "--variant", self.variant, "--facts", self.facts, "--mode", self.mode]
         for key, value in self.settings.items():
-            if key == "think" and isinstance(value, bool):
+            if key in ON_OFF and isinstance(value, bool):
                 value = "on" if value else "off"
             args += [SETTINGS[key], str(value)]
         return args + ["--experiment", experiment, "--out", str(out)]
@@ -281,7 +286,8 @@ def expected_config(job: Job) -> dict:
             "num_ctx": None if api else (ns.num_ctx or max(16384, max_tokens + 4096)),
             "request_timeout_s": ns.timeout,
             "idle_timeout_s": None if api else ns.idle_timeout,
-            "random_seeds": ns.random_seeds}
+            "random_seeds": ns.random_seeds,
+            "fix_syntax": ns.fix_syntax == "on"}
 
 
 def job_state(job: Job, exp_dir: Path) -> tuple[str, str]:
@@ -302,6 +308,7 @@ def job_state(job: Job, exp_dir: Path) -> tuple[str, str]:
         return "incomplete", f"{status}, {metrics.get('samples_done', 0)} of " \
                              f"{metrics.get('samples_planned', '?')} samples"
     want = expected_config(job)
+    config = {**CONFIG_DEFAULTS, **config}
     diff = [f"{k}={config[k]!r} (definition: {v!r})" for k, v in want.items()
             if k in config and config[k] != v]
     if diff:

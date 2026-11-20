@@ -15,6 +15,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tbd.eval.fixer import assemble_with_fixer
 from tbd.eval.grading import (Grade, assemble_program, categorize, parse_failures,
                               property_names, run_racer_check, with_rom)
 from tbd.paths import RACER_CHECK
@@ -223,13 +224,25 @@ def grade_program(spec: "TaskSpec", code: str, workdir: Path,
     (assemble record, grade). The relaxed tier runs when the strict check
     ran the program and failed on timing or output. `random_seeds` overrides
     the check files' count (Racer)."""
-    asm_rec, failed = assemble_program(code, workdir)
+    asm_rec, grade, _ = grade_attempt(spec, code, workdir, random_seeds)
+    return asm_rec, grade
+
+
+def grade_attempt(spec: "TaskSpec", code: str, workdir: Path, random_seeds: int | None = None,
+                  fix_syntax: bool = False) -> tuple[dict, Grade, dict | None]:
+    """grade_program, optionally with the syntax fixer (tbd.eval.fixer) between
+    the model and DASM. Returns (assemble record, grade, fix record or None
+    when the fixer is off); see fixer.assemble_with_fixer for what it keeps."""
+    if fix_syntax:
+        asm_rec, failed, fix_rec = assemble_with_fixer(code, workdir)
+    else:
+        (asm_rec, failed), fix_rec = assemble_program(code, workdir), None
     if failed:
-        return asm_rec, failed
+        return asm_rec, failed, fix_rec
     racer = Racer(spec.dir, workdir, random_seeds)
     grade = grade_report(spec, spec.check(racer))
     if grade.category in ("timing", "output_mismatch"):
         relaxed = spec.relaxed(racer)
         if relaxed is not None:
             grade.relaxed = _summary(grade_report(spec, relaxed))
-    return asm_rec, grade
+    return asm_rec, grade, fix_rec
