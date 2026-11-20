@@ -207,6 +207,18 @@ temperature: 0.7                   #   unset ones take case0's defaults
 - At the end it prints the run summary and the grid report for the
   experiment.
 
+The grid report can be rerun at any time from the saved files, over one or
+more experiments: `python -m tbd.eval.report experiments/<exp> ...` prints
+markdown. With `--html grid.html` it writes one self-contained page instead,
+so a run can be read away from the machine that produced it. The page has no
+external fetches and opens offline. Each grid cell links to its samples and
+attempts, which show the grade, DASM's errors, racer-check's findings, the
+prompt, the reply, the thinking and prog.asm. To keep the file small (about
+1 MB for 100 attempts), long text is collapsed and thinking is truncated.
+Stream logs and frame dumps are never included. Model output is escaped,
+because it is untrusted text. The page holds prompts and model output, so
+review it before sharing it outside the project.
+
 Not built: the proposal's `execution.provider`. Jobs always run from this
 machine; only where the model is served changes.
 
@@ -252,3 +264,20 @@ the grid report is enough.
 Record per job: wall time, tokens, tokens/s, GPU type and $/hour where
 applicable. Report **cost per passing attempt**, as the proposal says: a
 cheaper model that needs more attempts can cost more.
+
+The grid report (`python -m tbd.eval.report`) computes the timing from what
+each attempt already saves, so older runs get it without rerunning. Per cell
+it shows tok/s, queue and outside-generation time:
+
+- **tok/s** is the cell's output tokens divided by Ollama's `eval_duration`,
+  both summed over attempts. Summing first means a long attempt counts for
+  more than a short one, which a mean of per-attempt rates would not do.
+- **Queue** is RunPod's `delay_ms`, the time before a worker took the job.
+- **Outside generation** is `wall_ms` less the queue less Ollama's
+  `total_duration`. Model loading, polling and a stalled worker all land here.
+
+For RunPod runs the report adds a table per worker (`runpod.worker_id` in
+response.json) with the same figures, which is where a slow GPU or a stalled
+worker shows up. A timed-out request saves no response.json, so its attempt
+has no Ollama durations and no worker. The report marks a figure that covers
+only some of the attempts with "(k/n)". GPU type isn't recorded yet.

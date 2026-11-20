@@ -65,7 +65,8 @@ loop gets pointed.
   `timing` (wrong frame length or unstable framerate) · `output_mismatch`
   (runs at the right rate, wrong picture) · `crash_or_timeout`. These are
   the raw material for the failure-attribution open question.
-- **Cost to pass**: attempts, tokens, wall time.
+- **Cost to pass**: attempts, tokens, wall time. The report also shows tok/s,
+  queue and time outside generation (execution.md, "Cost").
 - **Fact use**: which fact ids were in context and which the program
   plausibly depended on. This is what the attribution claim rests on.
 

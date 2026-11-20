@@ -79,12 +79,26 @@ One row per cell.
 | pass@budget | Samples that passed within the attempt budget, with the budget(s) after `@`. Equal to pass@1 for one-shot. | Sample "passed"; the budget is 1 + `retries` from config.json. |
 | first-attempt categories | Share of samples by the category of their first attempt. | Sample "first category". |
 | near miss | Samples whose first attempt was a near miss. | Sample "near miss". |
+| assembled | Attempts DASM accepted, over all attempts. Where the syntax fixer was on, two figures: as the model wrote them, then after the fix (`1/3 → 2/3`). | Each attempt's `assemble.ok`, and its `fix.assembled_as_written` when the fixer ran. |
 | attempts/pass | Mean attempt number of the first pass, over passing samples only. | Sample "attempts to pass". |
 | output tokens | Output tokens, thinking included, over all attempts. | `tokens.output` per attempt. |
 | wall | Sum of attempt wall times. This is not elapsed time: jobs that ran in parallel each add their own time, and job setup isn't included. | `wall_ms` per attempt. |
 | cost | API cost in dollars, for providers that report it (Anthropic). "-" otherwise. | `cost_usd` per attempt. |
+| tok/s | Output tokens per second of generation: total output tokens over total generation time, so long attempts weigh more than short ones. | `tokens.output` per attempt, and `eval_duration` in its `response.json`. |
+| queue | Time requests waited in RunPod's queue before a worker took them. | `runpod.delay_ms` in each `response.json`. |
+| outside gen | Wall time less queue time less the model's own time: model loading, a stalled worker, delivering the streamed reply. | `wall_ms`, `runpod.delay_ms` and Ollama's `total_duration`. |
 | settings columns | Only settings whose values differ between cells are shown as columns. The rest are listed once under the table as "Same for every cell". | config.json; see below. |
 | flags | Problems with the cell's jobs. | See Flags. |
+
+A timing figure marked "(k/n)" covers only k of the cell's n attempts. A
+timed-out request saves no `response.json`, so it has no durations.
+
+## RunPod workers table
+
+Shown when any attempt's `response.json` names a RunPod worker
+(`runpod.worker_id`). One row per worker, over all cells: attempts, tok/s,
+queue and time outside generation, as in the cell detail table, plus time
+outside generation per attempt. A slow or stalled worker stands out here.
 
 ### Settings
 
@@ -97,6 +111,7 @@ compared are:
 | fact_snapshot | `fact_snapshot`, first 12 characters: a hash of the facts that were given. |
 | num_ctx, max_tokens, temperature, retries, effort | The fields of the same name. |
 | think | `thinking` (Anthropic) or `think` (Ollama). |
+| fix_syntax | `fix_syntax`: whether the syntax fixer ran (`on` or `off`; older configs count as `off`). |
 | dasm | `toolchain.dasm`, the DASM version. |
 | racer_check | `toolchain.racer_check.sha256`, first 12 characters. |
 | image | `toolchain.image_digest`, the container image, first 12 characters. |
@@ -128,21 +143,15 @@ report doesn't read the counts; it uses only the status, the heartbeat and
 | samples_planned, samples_done | Samples asked for and finished. |
 | passed, pass_rate | Samples that passed within the budget. |
 | pass_at_1_first_attempt | Share of samples whose first attempt passed. |
-| first_attempt_categories | Samples by first-attempt category. Until tbd-175 is fixed, a sample that passed on a later attempt is counted as `pass` here, not under its first attempt's category. |
-| near_misses | Samples whose first attempt was a near miss. Same caveat as above. |
+| first_attempt_categories | Samples by the category of attempt 1. Jobs saved before tbd-175 was fixed (2026-11-20) count a sample that passed on a later attempt as `pass`; the report's figures for them are right. |
+| near_misses | Samples whose attempt 1 was a near miss. Same caveat for older jobs. |
 | attempts_total, wall_s | Attempts made, and the job's elapsed time. |
 | pid, host, updated_at | The heartbeat, used to spot a job that stopped without saying so. |
 
 ## Planned changes
 
-Open beads that change these columns:
+Open beads that change the report:
 
-- **tbd-175**: makes `metrics.json`'s first-attempt fields come from attempt 1
-  only, as the report already does.
-- **tbd-9q8**: adds tok/s, RunPod queue time and time outside generation per
-  cell, and a table per RunPod worker.
-- **tbd-ljd**: adds "assembled as written" and "assembled after fix" when the
-  syntax fixer is on.
 - **tbd-z38**: adds a drill-down from each cell to its attempts in the HTML report.
 
-Update this document when one of them merges.
+Update this document when it merges.
