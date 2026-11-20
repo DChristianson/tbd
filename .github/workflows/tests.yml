@@ -1,0 +1,87 @@
+# Run the test suite on every pull request and every push to main.
+#
+# The tools are built the way the dev container builds them
+# (.devcontainer/Dockerfile and post-create.sh): DASM from source at a pinned
+# version and hash, and racer-check from vendor/racer at the dev container's
+# Rust version. stella-core is optional (GPL) and isn't built; its tests skip
+# themselves, as they do locally without it. racer-check is required here: a
+# step checks it was built, so its tests can't pass by skipping.
+#
+# Actions are pinned to commits; the comment gives the tag each one is.
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep these in step with .devcontainer/Dockerfile.
+  DASM_VERSION: 2.20.14.1
+  DASM_SHA256: ec71ffd10eeaa70bf7587ee0d79a92cd3f0a017c0d6d793e37d10359ceea663a
+  RUST_VERSION: 1.100.0
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  pytest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      TBD_RACER_CHECK: ${{ github.workspace }}/vendor/racer/target/release/racer-check
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build DASM
+        run: |
+          set -eu
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o dasm.tar.gz \
+            "https://github.com/dasm-assembler/dasm/archive/refs/tags/${DASM_VERSION}.tar.gz"
+          echo "$DASM_SHA256  dasm.tar.gz" | sha256sum -c -
+          tar -xzf dasm.tar.gz
+          make -C "dasm-${DASM_VERSION}" build
+          sudo install -m 0755 "dasm-${DASM_VERSION}/bin/dasm" /usr/local/bin/dasm
+          # With no arguments dasm prints its banner and exits non-zero.
+          dasm > dasm-banner.txt 2>&1 || true
+          head -1 dasm-banner.txt
+
+      - name: Install Rust ${{ env.RUST_VERSION }}
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+
+      - name: Cache racer-check build
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            vendor/racer/target
+          key: racer-${{ runner.os }}-rust${{ env.RUST_VERSION }}-${{ hashFiles('vendor/racer/Cargo.lock', 'vendor/racer/**/*.rs', 'vendor/racer/**/Cargo.toml') }}
+          restore-keys: racer-${{ runner.os }}-rust${{ env.RUST_VERSION }}-
+
+      - name: Build racer-check
+        run: |
+          cargo build --release --locked --manifest-path vendor/racer/Cargo.toml
+          test -x "$TBD_RACER_CHECK"
+
+      - name: Install tbd
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[test]'
+
+      - name: Run tests
+        # -rs lists every skipped test and why, so a skip that shouldn't
+        # happen shows in the log.
+        run: python -m pytest -rs

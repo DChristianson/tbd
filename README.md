@@ -78,6 +78,10 @@ All tests should pass. Tests that need `stella-core` or `racer-check` are
 skipped, with a message, if those aren't built; without Stella, that's the
 Stella cross-checks only.
 
+CI runs the same suite on every pull request and push to `main`
+(`.github/workflows/tests.yml`), with DASM and racer-check built and without
+Stella.
+
 ## Running Case 0
 
 ```sh
