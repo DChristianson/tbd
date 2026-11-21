@@ -178,6 +178,22 @@ def test_incomplete_job_reported_and_flagged(tmp_path):
     assert report.grid_value(by_model["m2"]) == "-" + report.FLAG
 
 
+def test_flag_legend_only_when_something_is_flagged(tmp_path):
+    legend = "flagged: incomplete job"
+    write_job(tmp_path / "ok", "j", _config(), ONE_SHOT)
+    clean = report.report_tables(report.build_cells(
+        [report.load_job(j) for j in report.find_jobs([tmp_path / "ok"])]))
+    assert not report.any_flagged(clean)
+    assert legend not in report.render_markdown(clean, ["ok"])
+    write_job(tmp_path / "bad", "j", _config(), ONE_SHOT, status="interrupted")
+    flagged = report.report_tables(report.build_cells(
+        [report.load_job(j) for j in report.find_jobs([tmp_path / "bad"])]))
+    assert report.any_flagged(flagged)
+    assert legend in report.render_markdown(flagged, ["bad"])
+    assert legend not in report.render_html(clean, ["ok"])
+    assert legend in report.render_html(flagged, ["bad"])
+
+
 def test_old_config_missing_keys(tmp_path):
     """Early runs: no task/variant/facts/num_ctx/retries, and 'think' instead of 'thinking'."""
     old = {"model": "llama3.1", "mode": "tool-feedback", "samples": 1, "think": None}

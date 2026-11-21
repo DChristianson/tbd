@@ -127,6 +127,22 @@ only once one is added (aws CLI, rclone, or Python's boto3). Built-in S3
 sync would also let the target be an S3-compatible service such as R2 or
 MinIO, and be tested locally against MinIO.
 
+**Not built (tbd-f78.30): a run code for each launch.** Today a rerun can
+overwrite earlier results at the sync target. Locally, an experiment's folder
+name comes from its definition, and it doubles as the key for resuming:
+running the same definition again skips the jobs already done. A pod starts
+with an empty `experiments/`, though, so it can't see what an earlier launch
+synced. Launching the same definition again reruns every job under the same
+names and copies over the earlier files at the target. This happened in a
+local smoke rerun on 2026-11-20.
+
+The fix: each pod-runner launch gets a run code, such as
+`20261120T1930Z-a3f9c1` (the UTC time plus six random hex digits), and syncs
+to `<target>/<experiment>/<run code>/`. Each job's `config.json` and the
+manifest record the code, so a result can be traced to its launch. Local runs
+and resuming are unchanged. Resuming a pod run from an earlier launch's
+results would be a later addition.
+
 ## How the pod stops
 
 **Works now:** the pod runner exits when the queue is empty, or when
@@ -163,11 +179,15 @@ once more, then runs `--on-exit` (`TBD_ON_EXIT`). Exit status:
 
 ## Test the pod runner locally
 
-**Not yet tried end to end (tbd-f78.27).** These steps should work with Docker
-Desktop on a Mac. They run Ollama on the CPU inside the container, with a
+**Tried on 2026-11-20, not yet passing (tbd-f78.27).** On a Mac with Docker
+Desktop, the image built, the pod runner started Ollama, pulled the model, ran
+the job and synced the results. But Ollama was killed loading llama3.1 in
+Docker's default 7.7 GiB VM; give Docker 12 GB or more. These steps should work
+with Docker Desktop on a Mac. They run Ollama on the CPU inside the container, with a
 model small enough for that. The smoke definition
-`experiments.d/t1-pod-smoke.yaml` runs one sample of T1 with
-`qwen2.5-coder:1.5b`; it checks the plumbing, not the model.
+`experiments.d/t1-pod-smoke.yaml` runs one sample of T1, one-shot and with
+no facts, with `llama3.1` (8B); it checks the plumbing, not the model.
+`docker/smoke-local.sh` runs this and the other local configurations.
 
 Check the definition without Docker, from a checkout:
 
