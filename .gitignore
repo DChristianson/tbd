@@ -45,4 +45,5 @@ vendor/racer/target-linux/
 experiments/
 
 # Local secrets (API keys). Never commit.
-.env.runpod
+.env
+.env.*
