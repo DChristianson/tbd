@@ -227,23 +227,27 @@ as root. They can be read normally, but removing them needs root.
 **Tried on 2026-11-26, not yet passing (tbd-f78.29.4).** The pod started
 Ollama, pulled llama3.1, ran the T1 job to `completed`, and the downloaded
 results loaded in the report. The model's program didn't assemble, which is
-expected for an 8B model (see the smoke definition).
+expected for an 8B model (see `experiments.d/t1-pod-smoke.yaml`).
 
-But it was slow. Two runs on an RTX PRO 6000 Blackwell generated 12.6 and
-14.5 tokens per second, and the second run read its 76-token prompt at 3
-tokens per second. Ollama's log for the second run shows the model ran on the
-GPU: Ollama found it through CUDA, and all 33 of llama3.1's layers loaded onto
-it. So the GPU was used, and something else made it slow.
+But it was slow. Two runs on an RTX PRO 6000 Blackwell generated their
+replies at 12.6 and 14.5 tokens per second. In the second run, reading the
+76-token prompt took 24 seconds, about 3 tokens per second. The pod had a
+MIG `1g.24gb` instance: MIG splits one card into isolated parts, and `1g` is
+the smallest, with a fraction of the card's compute. Ollama's log for the
+second run shows the model ran on that GPU: Ollama found it through CUDA, and
+the log says `offloaded 33/33 layers to GPU`. So the GPU was used, and
+something else made it slow.
 
 **The cause is the CPU thread count (tbd-f78.32).** llama.cpp, which Ollama
 runs, sizes its thread pool from the CPUs it sees. On the pod, `nproc` reports
-the host's 256 CPUs, though the pod gets only a share of their time, so
-llama.cpp started 128 threads and every token waited on them. In the pod's
-terminal, `ollama run llama3.1 --verbose` with `/set parameter num_thread 1`
-generated 76 tokens per second, and with `num_thread 256`, 9. Until the pod
-runner sets `num_thread` itself, runs on these pods are slow. The pod's MIG
-`1g.24gb` instance, the smallest partition of the card, may also limit speed,
-but it isn't what made this run slow.
+the host's 256 CPUs, but the pod's CPU quota was 6.8 CPUs
+(`/sys/fs/cgroup/cpu.max` was `680000 100000`). llama.cpp logged
+`n_threads = 128`, half the 256 it saw, and every token waited on those
+threads. In the pod's terminal, `ollama run llama3.1 --verbose` with
+`/set parameter num_thread 1`, 4 or 8 generated about 76 tokens per second,
+and with `num_thread 256`, 9. Until the pod runner sets `num_thread` itself,
+runs on these pods are slow. The small MIG instance may also limit speed, but
+it isn't what made this run slow.
 
 RunPod's GPU meter showed no use during the run. A MIG instance may not report
 its use there *(unchecked)*, so the meter doesn't settle whether the GPU ran.
@@ -288,12 +292,14 @@ These steps stand in for three pieces that aren't built: a published image
    skips `--on-exit`, and RunPod then restarts the container, so the error
    repeats every few seconds until the pod is stopped.
 
-   The `TBD_ON_EXIT` command never finishes, and the pod runner waits for it.
+   `TBD_ON_EXIT` is the command the pod runner runs after its final sync,
+   and the pod runner waits for it to finish. This one never finishes.
    That keeps the container up after the run, so RunPod doesn't restart it
    and run the experiment again. While it stays up, it serves the results
    over HTTP, which replaces S3 for the trial.
 
-3. **Watch the pod's log** until the line starting `on exit:` appears. The
+3. **Watch the pod's log**, in the pod's Logs view in the RunPod console,
+   until the line starting `on exit:` appears. The
    results are served only from then on, and they are complete only then.
 
 4. **Download the results and read them with the report:**
