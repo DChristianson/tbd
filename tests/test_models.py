@@ -77,3 +77,28 @@ def test_idle_timeout_is_capped_at_the_request_timeout(silent_ollama):
     with pytest.raises(RequestTimeout):
         chat(timeout_s=1, idle_timeout_s=60)
     assert time.time() - start < 2.5
+
+
+def test_num_thread_goes_in_the_options_only_when_set(monkeypatch, tmp_path):
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps({"message": {"content": "k"}, "done": True}).encode() + b"\n")
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(models, "OLLAMA", f"http://127.0.0.1:{server.server_port}")
+    try:
+        chat(num_thread=6)
+        chat()
+    finally:
+        server.shutdown()
+    assert seen[0]["options"]["num_thread"] == 6
+    assert "num_thread" not in seen[1]["options"]

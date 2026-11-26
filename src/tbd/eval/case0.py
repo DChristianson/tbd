@@ -202,8 +202,17 @@ def chat(args, messages: list[dict], seed: int, workdir: Path) -> dict:
                            idle_timeout_s=args.idle_timeout, save_to=workdir)
     return ollama_chat(args.model, messages, temperature=args.temperature, seed=seed,
                        think=args.think, max_tokens=effective_max_tokens(args),
-                       num_ctx=args.num_ctx, timeout_s=args.timeout,
+                       num_ctx=args.num_ctx, num_thread=num_thread(args), timeout_s=args.timeout,
                        idle_timeout_s=args.idle_timeout, save_to=workdir)
+
+
+def num_thread(args) -> int | None:
+    """llama.cpp's CPU threads for an ollama request: --num-thread, else
+    TBD_NUM_THREAD (the pod runner sets it from the pod's CPU quota), else None,
+    which leaves it to Ollama."""
+    if args.provider != "ollama":
+        return None
+    return args.num_thread or int(os.environ.get("TBD_NUM_THREAD") or 0) or None
 
 
 # Claude requests stream, so a large cap is safe and only what's used is billed;
@@ -251,6 +260,10 @@ def build_parser() -> argparse.ArgumentParser:
                         f"anthropic, {MAX_OUTPUT_TOKENS} for ollama)")
     p.add_argument("--num-ctx", type=int, default=None,
                    help="context window (default: max(16384, max-tokens + 4096))")
+    p.add_argument("--num-thread", type=int, default=None,
+                   help="ollama only: CPU threads for llama.cpp (default: TBD_NUM_THREAD, "
+                        "else Ollama's choice, which counts the host's CPUs, not a "
+                        "container's quota)")
     p.add_argument("--timeout", type=float, default=REQUEST_TIMEOUT_S,
                    help="wall-clock seconds per request; output so far is kept")
     p.add_argument("--idle-timeout", type=float, default=IDLE_TIMEOUT_S,
@@ -346,6 +359,7 @@ def main(argv: list[str] | None = None) -> int:
         "thinking": {"type": "adaptive", "display": "summarized"} if anthropic_run else args.think, "retries": args.retries if args.mode == "tool-feedback" else 0,
         "max_tokens": effective_max_tokens(args),
         "num_ctx": None if anthropic_run else (args.num_ctx or max(16384, effective_max_tokens(args) + 4096)),
+        "num_thread": num_thread(args),
         "request_timeout_s": args.timeout,
         "idle_timeout_s": None if anthropic_run else args.idle_timeout, "prompt": args.spec.prompt, "grader": "racer-check",
         "task_dir": str(args.spec.dir.relative_to(ROOT)),

@@ -31,19 +31,23 @@ class RequestTimeout(Exception):
 
 def ollama_chat(model: str, messages: list[dict], *, temperature: float, seed: int,
                 think: bool | None, max_tokens: int = MAX_OUTPUT_TOKENS,
-                num_ctx: int | None = None, timeout_s: float = REQUEST_TIMEOUT_S,
+                num_ctx: int | None = None, num_thread: int | None = None,
+                timeout_s: float = REQUEST_TIMEOUT_S,
                 idle_timeout_s: float = IDLE_TIMEOUT_S, save_to: Path | None = None) -> dict:
     """Streamed chat request. Every chunk is appended to stream.jsonl as it
     arrives, and response.md / thinking.md grow with it, so a timeout or an
     interruption keeps everything generated so far. `timeout_s` is a total
     wall-clock deadline for the whole request. `idle_timeout_s` bounds a silent
     server: the wait for any one read, including the wait for the first token
-    while the model loads."""
+    while the model loads. `num_thread` (None: Ollama's choice) is the CPU
+    threads llama.cpp uses for the request."""
     # The context window must hold the conversation plus the whole output.
     num_ctx = num_ctx or max(16384, max_tokens + 4096)
     body = {"model": model, "messages": messages, "stream": True,
             "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx,
                         "num_predict": max_tokens}}
+    if num_thread:
+        body["options"]["num_thread"] = num_thread
     if think is not None:
         body["think"] = think
     if save_to:

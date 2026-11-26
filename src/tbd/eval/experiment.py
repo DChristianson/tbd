@@ -15,7 +15,7 @@ The definition (docs/design/execution.md, "Experiment definition"):
       - { id: t1, variants: all }  # all = every tasks/t1/<variant>/ with a prompt.txt
     modes: [one-shot, tool-feedback]
     samples: 3                     # settings: samples, seed, temperature, retries,
-    seed: 42                       #   max_tokens, num_ctx, timeout, idle_timeout,
+    seed: 42                       #   max_tokens, num_ctx, num_thread, timeout, idle_timeout,
     temperature: 0.7               #   think, effort, random_seeds, fix_syntax;
                                    #   unset ones take case0's defaults
     parallel: 1                    # jobs at once (default 1; --parallel overrides)
@@ -81,6 +81,7 @@ PROVIDERS = ("ollama", "anthropic", "runpod")
 # Definition key -> case0 flag. Each may be set at the top level or per model.
 SETTINGS = {"samples": "--samples", "seed": "--seed", "temperature": "--temperature",
             "retries": "--retries", "max_tokens": "--max-tokens", "num_ctx": "--num-ctx",
+            "num_thread": "--num-thread",
             "timeout": "--timeout", "idle_timeout": "--idle-timeout", "endpoint": "--endpoint", "think": "--think", "effort": "--effort",
             "random_seeds": "--random-seeds", "fix_syntax": "--fix-syntax"}
 # Settings given as true/false in YAML and as on/off to case0.
@@ -275,7 +276,7 @@ def expected_config(job: Job) -> dict:
     ns = case0.build_parser().parse_args(job.argv("x", Path(".")))
     api = job.provider == "anthropic"
     max_tokens = case0.effective_max_tokens(ns)
-    return {"provider": job.provider, "model": job.model, "facts": job.facts,
+    want = {"provider": job.provider, "model": job.model, "facts": job.facts,
             "task": job.task, "variant": job.variant, "mode": job.mode,
             "samples": ns.samples,
             "temperature": None if api else ns.temperature,
@@ -288,6 +289,11 @@ def expected_config(job: Job) -> dict:
             "idle_timeout_s": None if api else ns.idle_timeout,
             "random_seeds": ns.random_seeds,
             "fix_syntax": ns.fix_syntax == "on"}
+    # Without the key, the machine chooses the threads (TBD_NUM_THREAD), so a
+    # job resumed on another pod isn't a mismatch.
+    if ns.num_thread is not None:
+        want["num_thread"] = ns.num_thread
+    return want
 
 
 def job_state(job: Job, exp_dir: Path) -> tuple[str, str]:

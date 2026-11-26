@@ -14,7 +14,10 @@ in the same container, so there is no laptop and no network hop involved.
    It then pulls every model the definitions name.
 3. It records the machine for case0: TBD_GPU (nvidia-smi's GPU name; unset
    if there is no GPU) and TBD_HOST_ID (RUNPOD_POD_ID, else the hostname).
-   case0 copies both into each job's config.json as `compute`.
+   case0 copies both into each job's config.json as `compute`. With
+   --serve-ollama it also sets TBD_NUM_THREAD, unless it is set already, to
+   the container's CPU quota (cpu_quota), which case0 sends as Ollama's
+   num_thread and records in config.json.
 4. It runs the definitions in the order given, each with tbd.eval.experiment
    as it is (parallel, gate and resume unchanged).
 5. After every job, and after every definition, it copies experiments/<name>/
@@ -88,6 +91,23 @@ def gpu_name(run=subprocess.run) -> str | None:
         return None
     names = [line.strip() for line in r.stdout.splitlines() if line.strip()]
     return ", ".join(names) if r.returncode == 0 and names else None
+
+
+def cpu_quota(path: Path = Path("/sys/fs/cgroup/cpu.max"), cpus: int | None = None) -> int | None:
+    """The container's CPU quota in whole CPUs (at least 1, at most the CPUs it
+    sees), from cgroup v2's cpu.max ("<quota> <period>" in microseconds); None
+    when there is no quota ("max") or no such file.
+
+    A RunPod pod sees all of the host's CPUs (256 on one) but gets a quota of a
+    few (6.8 there). llama.cpp sizes its threads from what it sees, and its
+    threads then crowd the quota: llama3.1 8B on the GPU generated 9 tokens per
+    second with 256 threads and 76 with 1, 4 or 8 (docs/running.md)."""
+    try:
+        quota, period = path.read_text().split()[:2]
+        n = int(int(quota) / int(period))
+    except (OSError, ValueError):   # "max", a missing file, cgroup v1
+        return None
+    return max(1, min(n, cpus or os.cpu_count() or n))
 
 
 def host_id(env=os.environ) -> str:
@@ -373,7 +393,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None, *, run_def=run_definition, pull=pull_models,
-         server_factory=OllamaServer, gpu=gpu_name, interrupt=None, run_shell=subprocess.run,
+         server_factory=OllamaServer, gpu=gpu_name, cpu_threads=cpu_quota, interrupt=None,
+         run_shell=subprocess.run,
          hard_exit=os._exit) -> int:
     p = build_parser()
     args = p.parse_args(argv)
@@ -430,7 +451,12 @@ def main(argv: list[str] | None = None, *, run_def=run_definition, pull=pull_mod
                 os.environ["TBD_GPU"] = name
             else:
                 os.environ.pop("TBD_GPU", None)
-        log(f"gpu: {os.environ.get('TBD_GPU')}; host: {os.environ['TBD_HOST_ID']}")
+        if server and not os.environ.get("TBD_NUM_THREAD"):
+            n = cpu_threads()
+            if n:
+                os.environ["TBD_NUM_THREAD"] = str(n)
+        log(f"gpu: {os.environ.get('TBD_GPU')}; host: {os.environ['TBD_HOST_ID']}; "
+            f"num_thread: {os.environ.get('TBD_NUM_THREAD') or '(Ollama chooses)'}")
         results = run_queue(items, args.out, sync, run_def,
                             stopped=lambda: stop["signum"] is not None or lifetime.expired.is_set())
     except Exception as e:   # noqa: BLE001 -- a setup failure still runs Finish (stops the pod)
