@@ -470,3 +470,15 @@ def test_num_thread_is_compared_only_when_the_definition_sets_it():
     claude = expand(defn(num_thread=4, models=[{"provider": "anthropic",
                                                 "model": "claude-opus-5-5"}]))[0]
     assert "num_thread" not in experiment.expected_config(claude)
+
+
+def test_baseline_trial_jobs_are_full_run_jobs_with_the_same_settings():
+    # The full run resumes past the trial's jobs only if their recorded settings
+    # match (job_state), so the two definitions must agree on every shared job.
+    _, trial = experiment.load(ROOT / "experiments.d" / "t1-baseline-pod-trial.yaml")
+    _, full = experiment.load(ROOT / "experiments.d" / "t1-baseline-pod.yaml")
+    by_id = {j.job_id: j for j in full}
+    assert len(trial) == 6 and len(full) == 72
+    for job in trial:
+        assert job.job_id in by_id
+        assert experiment.expected_config(job) == experiment.expected_config(by_id[job.job_id])
