@@ -395,6 +395,10 @@ def test_case0_takes_num_thread_from_the_flag_else_the_environment(monkeypatch):
     assert case0.num_thread(args) == 2
     args = case0.build_parser().parse_args(["--provider", "anthropic", "--model", "claude-opus-5-5"])
     assert case0.num_thread(args) is None
+    args = case0.build_parser().parse_args(["--model", "llama3.1"])
+    for bad in ("abc", "-3", "0"):
+        monkeypatch.setenv("TBD_NUM_THREAD", bad)
+        assert case0.num_thread(args) is None
 
 
 def test_git_sha_falls_back_to_the_image_build_arg(monkeypatch, tmp_path):
@@ -428,6 +432,7 @@ def test_lifetime_with_the_real_signal_skips_the_rest(tmp_path):
     ("1600000 100000\n", 8, 8),       # a quota above the CPUs seen
     ("max 100000\n", 256, None),      # no quota
     ("garbage\n", 256, None),
+    ("100000 0\n", 256, None),
 ])
 def test_cpu_quota_from_cgroup(tmp_path, text, cpus, want):
     f = tmp_path / "cpu.max"

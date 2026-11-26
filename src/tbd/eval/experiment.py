@@ -289,9 +289,10 @@ def expected_config(job: Job) -> dict:
             "idle_timeout_s": None if api else ns.idle_timeout,
             "random_seeds": ns.random_seeds,
             "fix_syntax": ns.fix_syntax == "on"}
-    # Without the key, the machine chooses the threads (TBD_NUM_THREAD), so a
-    # job resumed on another pod isn't a mismatch.
-    if ns.num_thread is not None:
+    # Without the key, the pod runner's TBD_NUM_THREAD or Ollama chooses the
+    # threads, which can differ between machines, so a job resumed elsewhere
+    # isn't a mismatch. Only ollama requests carry it (case0.num_thread).
+    if ns.num_thread is not None and job.provider == "ollama":
         want["num_thread"] = ns.num_thread
     return want
 

@@ -212,7 +212,13 @@ def num_thread(args) -> int | None:
     which leaves it to Ollama."""
     if args.provider != "ollama":
         return None
-    return args.num_thread or int(os.environ.get("TBD_NUM_THREAD") or 0) or None
+    if args.num_thread:
+        return args.num_thread
+    try:
+        n = int(os.environ.get("TBD_NUM_THREAD") or 0)
+    except ValueError:
+        return None
+    return n if n > 0 else None
 
 
 # Claude requests stream, so a large cap is safe and only what's used is billed;

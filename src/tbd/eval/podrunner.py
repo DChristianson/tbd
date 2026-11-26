@@ -99,13 +99,15 @@ def cpu_quota(path: Path = Path("/sys/fs/cgroup/cpu.max"), cpus: int | None = No
     when there is no quota ("max") or no such file.
 
     A RunPod pod sees all of the host's CPUs (256 on one) but gets a quota of a
-    few (6.8 there). llama.cpp sizes its threads from what it sees, and its
-    threads then crowd the quota: llama3.1 8B on the GPU generated 9 tokens per
-    second with 256 threads and 76 with 1, 4 or 8 (docs/running.md)."""
+    few (6.8 there). llama.cpp sizes its threads from what it sees (it chose
+    128), and the threads then crowd the quota. llama3.1 8B, fully on the GPU,
+    generated 12.6 to 14.5 tokens per second with llama.cpp's choice, 9 with
+    num_thread 256, and about 76 with 1, 4 or 8 (docs/running.md, "Run on
+    RunPod")."""
     try:
         quota, period = path.read_text().split()[:2]
         n = int(int(quota) / int(period))
-    except (OSError, ValueError):   # "max", a missing file, cgroup v1
+    except (OSError, ValueError, ZeroDivisionError):   # "max", no file, cgroup v1
         return None
     return max(1, min(n, cpus or os.cpu_count() or n))
 

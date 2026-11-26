@@ -467,3 +467,6 @@ def test_num_thread_is_compared_only_when_the_definition_sets_it():
     pinned = expand(defn(num_thread=4))[0]
     assert "--num-thread" in pinned.argv("exp", Path("/out"))
     assert experiment.expected_config(pinned)["num_thread"] == 4
+    claude = expand(defn(num_thread=4, models=[{"provider": "anthropic",
+                                                "model": "claude-opus-5-5"}]))[0]
+    assert "num_thread" not in experiment.expected_config(claude)
