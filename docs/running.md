@@ -34,7 +34,7 @@ tbd-f78.29.
 | Local | Ollama in the container | GPU | — | Out of scope (see below) | — |
 | RunPod pod | Remote provider | A CPU pod for the worker *(unchecked)*; the provider's hardware for the model | The `worker` image with its command set to `python -m tbd.eval.podrunner` (without `--serve-ollama`) | Blocked: the pod runner accepts only `ollama` models (tbd-f78.28). Also needs a published image (tbd-f78.7). | tbd-f78.29.2 |
 | RunPod pod | Ollama in the container | CPU pod *(unchecked)* | `pod-runner` | Not yet tried; needs a published image (tbd-f78.7) | tbd-f78.29.3 |
-| RunPod pod | Ollama in the container | GPU pod | `pod-runner` | Not yet tried; needs a published image (tbd-f78.7) | tbd-f78.29.4 |
+| RunPod pod | Ollama in the container | GPU pod | `pod-runner` | Tried on 2026-11-26 with an image built and pushed by hand: the run completed on the GPU, but slowly, because of too many CPU threads (tbd-f78.32; see "Run on RunPod") | tbd-f78.29.4 |
 
 **The basic smoke test** for each configuration: one sample of T1 with a small
 model runs to completion, and its results load in `tbd.eval.report`. The
@@ -161,8 +161,9 @@ once more, then runs `--on-exit` (`TBD_ON_EXIT`). Exit status:
 
 **Not built (tbd-f78.22):**
 
-- **Stopping the pod itself.** The process exiting may not stop billing:
-  RunPod may restart a pod's container when it exits *(unchecked)*. The
+- **Stopping the pod itself.** The process exiting doesn't stop billing:
+  RunPod restarted the container each time the pod runner exited, in the
+  trial run on 2026-11-26. The
   plan is for `--on-exit` to call RunPod's API to stop or terminate the pod.
   Whether RunPod gives the pod an API key, and whether stop or terminate is
   the right call, still has to be checked.
@@ -220,6 +221,104 @@ On a Linux host, the synced files are owned by root, because the container runs
 as root. They can be read normally, but removing them needs root.
 
 ## Run on RunPod
+
+### Trial run, by hand
+
+**Tried on 2026-11-26, not yet passing (tbd-f78.29.4).** The pod started
+Ollama, pulled llama3.1, ran the T1 job to `completed`, and the downloaded
+results loaded in the report. The model's program didn't assemble, which is
+expected for an 8B model (see the smoke definition).
+
+But it was slow. Two runs on an RTX PRO 6000 Blackwell generated 12.6 and
+14.5 tokens per second, and the second run read its 76-token prompt at 3
+tokens per second. Ollama's log for the second run shows the model ran on the
+GPU: Ollama found it through CUDA, and all 33 of llama3.1's layers loaded onto
+it. So the GPU was used, and something else made it slow.
+
+**The cause is the CPU thread count (tbd-f78.32).** llama.cpp, which Ollama
+runs, sizes its thread pool from the CPUs it sees. On the pod, `nproc` reports
+the host's 256 CPUs, though the pod gets only a share of their time, so
+llama.cpp started 128 threads and every token waited on them. In the pod's
+terminal, `ollama run llama3.1 --verbose` with `/set parameter num_thread 1`
+generated 76 tokens per second, and with `num_thread 256`, 9. Until the pod
+runner sets `num_thread` itself, runs on these pods are slow. The pod's MIG
+`1g.24gb` instance, the smallest partition of the card, may also limit speed,
+but it isn't what made this run slow.
+
+RunPod's GPU meter showed no use during the run. A MIG instance may not report
+its use there *(unchecked)*, so the meter doesn't settle whether the GPU ran.
+Ollama's log does: look for `offloaded 33/33 layers to GPU`, and for
+`tokens per second` in the `eval time` line. The log goes only to the pod's
+console, so copy it before terminating the pod.
+
+These steps stand in for three pieces that aren't built: a published image
+(tbd-f78.7), S3 sync (tbd-f78.26) and self-stop (tbd-f78.22).
+
+1. **Build and push the image from the Mac**, for `linux/amd64`, the platform
+   RunPod runs. On Apple Silicon the build is emulated, so it is slow.
+
+   ```sh
+   gh auth refresh -s write:packages
+   gh auth token | docker login ghcr.io -u DChristianson --password-stdin
+   docker buildx build --platform linux/amd64 -f docker/worker.Dockerfile \
+     --target pod-runner --build-arg GIT_SHA=$(git rev-parse HEAD) \
+     -t ghcr.io/dchristianson/tbd-pod-runner:$(git rev-parse --short HEAD) --push .
+   ```
+
+   GHCR packages start out private. Make the package public in its settings,
+   so the pod can pull it without credentials. The image holds no secrets.
+
+2. **Create a pod** in the RunPod console, with:
+   - the image `ghcr.io/dchristianson/tbd-pod-runner:<sha>`, and the start
+     command left empty, so the image's entrypoint (the pod runner) runs;
+   - a GPU with 16 GB or more, which is plenty for llama3.1 8B;
+   - HTTP port `8000` exposed;
+   - these environment variables, set in the pod's settings:
+
+     ```
+     TBD_DEFINITIONS=experiments.d/t1-pod-smoke.yaml
+     TBD_SYNC=/workspace/results
+     TBD_MAX_LIFETIME=45m
+     TBD_ON_EXIT=cd /workspace/results && exec python -m http.server 8000
+     ```
+
+   If the log says `no experiment definitions (arguments or
+   TBD_DEFINITIONS)`, the variables didn't reach the container. Set them in
+   the pod's settings and redeploy. That error exits with status 2, which
+   skips `--on-exit`, and RunPod then restarts the container, so the error
+   repeats every few seconds until the pod is stopped.
+
+   The `TBD_ON_EXIT` command never finishes, and the pod runner waits for it.
+   That keeps the container up after the run, so RunPod doesn't restart it
+   and run the experiment again. While it stays up, it serves the results
+   over HTTP, which replaces S3 for the trial.
+
+3. **Watch the pod's log** until the line starting `on exit:` appears. The
+   results are served only from then on, and they are complete only then.
+
+4. **Download the results and read them with the report:**
+
+   ```sh
+   wget -r -l inf -np -nH -P /tmp/tbd-pod https://<pod-id>-8000.proxy.runpod.net/
+   python -m tbd.eval.report /tmp/tbd-pod/t1-pod-smoke
+   ```
+
+   Without `-l inf`, wget stops five levels down, which leaves each attempt's
+   folder (`jobs/<job>/sample-00/attempt-1/`) with only its `index.html`. The
+   job's `attempts.jsonl`, one level up, has the same records.
+
+   Anyone who knows the pod's URL can read these files until the pod is gone.
+   They are results from a public repository, so that is harmless.
+
+   A network that inspects TLS may block the download. On one office
+   network, a FortiGate firewall replaced RunPod's certificate and then
+   returned 403, because it classes `*.proxy.runpod.net` as "Proxy
+   Avoidance". Downloading from another network worked.
+
+5. **Terminate the pod by hand**, then check the Pods list to confirm it's
+   gone.
+
+### With a published image and S3
 
 **Not yet done.** The steps, once the image is published (tbd-f78.7):
 
