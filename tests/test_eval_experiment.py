@@ -459,3 +459,14 @@ def test_parallel_gate_holds_back_only_its_own_configuration(tmp_path):
                            preflight=no_preflight) == 0
     assert set(order[:4]) == {j.job_id for j in expand(defn(**GATED)) if j.gate}
     assert len(order) == 6
+
+
+def test_num_thread_is_compared_only_when_the_definition_sets_it():
+    plain = expand(defn())[0]
+    assert "num_thread" not in experiment.expected_config(plain)
+    pinned = expand(defn(num_thread=4))[0]
+    assert "--num-thread" in pinned.argv("exp", Path("/out"))
+    assert experiment.expected_config(pinned)["num_thread"] == 4
+    claude = expand(defn(num_thread=4, models=[{"provider": "anthropic",
+                                                "model": "claude-opus-5-5"}]))[0]
+    assert "num_thread" not in experiment.expected_config(claude)

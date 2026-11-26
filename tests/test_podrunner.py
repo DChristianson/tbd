@@ -59,7 +59,7 @@ def run(tmp_path, argv, **kw):
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     for var in ("TBD_GPU", "TBD_HOST_ID", "RUNPOD_POD_ID", "TBD_SYNC", "TBD_SYNC_COMMAND",
-                "TBD_DEFINITIONS", "TBD_ON_EXIT", "TBD_MAX_LIFETIME"):
+                "TBD_DEFINITIONS", "TBD_ON_EXIT", "TBD_MAX_LIFETIME", "TBD_NUM_THREAD"):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -384,6 +384,21 @@ def test_case0_writes_compute_into_config(tmp_path, monkeypatch):
                        "--out", str(tmp_path)]) == 0
     cfg = json.loads(next(tmp_path.glob("e/jobs/*/config.json")).read_text())
     assert cfg["compute"] == {"gpu": "NVIDIA L40S", "host_id": "pod-1"}
+    assert cfg["num_thread"] is None
+
+
+def test_case0_takes_num_thread_from_the_flag_else_the_environment(monkeypatch):
+    monkeypatch.setenv("TBD_NUM_THREAD", "6")
+    args = case0.build_parser().parse_args(["--model", "llama3.1"])
+    assert case0.num_thread(args) == 6
+    args = case0.build_parser().parse_args(["--model", "llama3.1", "--num-thread", "2"])
+    assert case0.num_thread(args) == 2
+    args = case0.build_parser().parse_args(["--provider", "anthropic", "--model", "claude-opus-5-5"])
+    assert case0.num_thread(args) is None
+    args = case0.build_parser().parse_args(["--model", "llama3.1"])
+    for bad in ("abc", "-3", "0"):
+        monkeypatch.setenv("TBD_NUM_THREAD", bad)
+        assert case0.num_thread(args) is None
 
 
 def test_git_sha_falls_back_to_the_image_build_arg(monkeypatch, tmp_path):
@@ -407,3 +422,57 @@ def test_lifetime_with_the_real_signal_skips_the_rest(tmp_path):
     code = run(tmp_path, [str(a), str(b), "--no-sync", "--max-lifetime", "0.2"], run_def=slow)
     assert code == podrunner.EXIT_LIFETIME
     assert order == ["a"]
+
+
+# ---------------------------------------------------------------- CPU threads
+
+@pytest.mark.parametrize("text, cpus, want", [
+    ("680000 100000\n", 256, 6),      # the RunPod pod: 6.8 CPUs of 256
+    ("50000 100000\n", 256, 1),       # half a CPU still gets one thread
+    ("1600000 100000\n", 8, 8),       # a quota above the CPUs seen
+    ("max 100000\n", 256, None),      # no quota
+    ("garbage\n", 256, None),
+    ("100000 0\n", 256, None),
+])
+def test_cpu_quota_from_cgroup(tmp_path, text, cpus, want):
+    f = tmp_path / "cpu.max"
+    f.write_text(text)
+    assert podrunner.cpu_quota(f, cpus) == want
+
+
+def test_cpu_quota_without_the_file_is_none(tmp_path):
+    assert podrunner.cpu_quota(tmp_path / "missing") is None
+
+
+class StubServer:
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+
+def test_serving_ollama_sets_num_thread_from_the_quota(tmp_path, monkeypatch):
+    monkeypatch.delenv("TBD_NUM_THREAD", raising=False)
+    path = write_defn(tmp_path, "a")
+    seen = []
+    run(tmp_path, [str(path), "--no-sync", "--serve-ollama"],
+        run_def=lambda *a: seen.append(os.environ.get("TBD_NUM_THREAD")) or 0,
+        server_factory=StubServer, pull=lambda *a, **k: None, cpu_threads=lambda: 6)
+    assert seen == ["6"]
+
+
+def test_a_given_num_thread_wins_and_no_quota_leaves_it_unset(tmp_path, monkeypatch):
+    path = write_defn(tmp_path, "a")
+    seen = []
+
+    def go():
+        run(tmp_path, [str(path), "--no-sync", "--serve-ollama"],
+            run_def=lambda *a: seen.append(os.environ.get("TBD_NUM_THREAD")) or 0,
+            server_factory=StubServer, pull=lambda *a, **k: None, cpu_threads=lambda: None)
+
+    monkeypatch.setenv("TBD_NUM_THREAD", "2")
+    go()
+    monkeypatch.delenv("TBD_NUM_THREAD")
+    go()
+    assert seen == ["2", None]
