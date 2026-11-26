@@ -28,7 +28,8 @@ in the same container, so there is no laptop and no network hop involved.
    and no further job starts. If they haven't stopped after --grace, it
    syncs and exits anyway.
 7. On the way out, always, it syncs once more and then runs --on-exit (e.g. a
-   command that stops the pod). Exiting alone may not stop a pod's billing.
+   command that stops the pod). Exiting alone doesn't stop a pod's billing:
+   RunPod restarts the container (docs/running.md).
 
 Settings can also come from the environment, which suits a pod template:
 TBD_DEFINITIONS (space-separated paths, when none are given as arguments),
