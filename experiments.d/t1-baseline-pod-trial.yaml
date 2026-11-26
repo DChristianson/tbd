@@ -1,0 +1,38 @@
+# The trial run for t1-baseline-pod.yaml: that experiment's canonical one-shot
+# job for each of its six models, 10 samples each. Run it before the full
+# definition, to see each model's speed (the report's tok/s column) and that
+# each one loads on the card.
+#
+# It writes into the same experiment, experiments/t1-baseline-pod, with the
+# same per-model settings, so the full run's resume skips these six jobs. Keep
+# the models and settings identical to t1-baseline-pod.yaml;
+# tests/test_eval_experiment.py checks that they match.
+#
+#   python -m tbd.eval.podrunner experiments.d/t1-baseline-pod-trial.yaml --no-sync --dry-run
+experiment: t1-baseline-pod
+
+models:
+  - { provider: ollama, model: llama3.1 }                 # 8B
+  - { provider: ollama, model: qwen2.5-coder }            # 7B
+  - { provider: ollama, model: "qwen2.5-coder:14b" }
+  - { provider: ollama, model: qwen3-coder }              # 30B, mixture of experts
+  - { provider: ollama, model: "qwen3.6:27b", num_ctx: 20480, max_tokens: 16384,
+      timeout: 1800, idle_timeout: 300 }
+  - { provider: ollama, model: glm-4.7-flash, num_ctx: 20480, max_tokens: 16384,  # 30B, MoE
+      timeout: 1800, idle_timeout: 300 }
+
+facts: [none]
+
+tasks:
+  - { id: t1, variants: [canonical] }
+
+modes: [one-shot]
+
+samples: 10
+seed: 42
+temperature: 0.7
+num_ctx: 8192
+max_tokens: 4096
+retries: 3
+timeout: 900
+parallel: 1
