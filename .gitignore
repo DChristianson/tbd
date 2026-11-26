@@ -34,6 +34,9 @@ docs/design/flatbuffers-spike/cpp_benchmark
 *.gate.lock*
 .snagboat/
 
+# batari Basic, built on a Mac by .devcontainer/build-batari.sh
+/build/batari-basic/
+
 # racer-check build output (target/ = Mac, target-linux/ = dev container)
 vendor/racer/target/
 vendor/racer/target-linux/

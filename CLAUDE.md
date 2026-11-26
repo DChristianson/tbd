@@ -70,7 +70,8 @@ python -m pytest              # racer-check / stella-core tests skip if not buil
 
 ## Architecture Overview
 
-- `src/tbd/tools/` — `assembler` (DASM) and `emulator` (stella-core, tests only).
+- `src/tbd/tools/` — `assembler` (DASM), `batari` (batari Basic compiler) and
+  `emulator` (stella-core, tests only).
 - `src/tbd/eval/grading.py` — task-agnostic: extract code, assemble, run a
   racer-check check file, categorize. `models.py` / `claude_client.py` — the
   model clients. `tasks.py` / `checks.py` — task specs and running their

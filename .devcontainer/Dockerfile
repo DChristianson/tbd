@@ -14,11 +14,12 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # ---- tbd toolchain -----------------------------------------------------------
-# Python for src/tbd + tests; a C++20 compiler and CMake for stella-core.
+# Python for src/tbd + tests; a C++20 compiler and CMake for stella-core;
+# flex for batari Basic.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       python3 python3-venv python3-pip \
-      build-essential cmake \
+      build-essential cmake flex \
  && rm -rf /var/lib/apt/lists/*
 
 # DASM, built from source at the same version the host uses (2.20.14.1; see
@@ -36,6 +37,13 @@ RUN set -eu; \
     make -C "dasm-${DASM_VERSION}" build; \
     install -m 0755 "dasm-${DASM_VERSION}/bin/dasm" /usr/local/bin/dasm; \
     rm -rf /tmp/dasm*
+
+# batari Basic (bB) 1.9, the BASIC-to-2600 compiler, built from a hash-pinned
+# source archive. The version and hash live in the script, which a Mac uses
+# too; tbd.paths.BATARI finds the install through TBD_BATARI.
+COPY build-batari.sh /tmp/build-batari.sh
+RUN bash /tmp/build-batari.sh /opt/batari-basic && rm /tmp/build-batari.sh
+ENV TBD_BATARI=/opt/batari-basic
 
 # Rust, for the vendored racer-check (vendor/racer/; built by post-create.sh).
 # rustup-init is pinned by version and hash (written here, not fetched from
