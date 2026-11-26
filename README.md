@@ -17,19 +17,21 @@ Work items are tracked in beads (`bd ready`).
 
 | Path | What it is | License |
 |---|---|---|
-| `src/tbd/tools/` | `assembler` (wraps DASM) and `emulator` (drives `stella-core`; used only by tests) | MIT |
+| `src/tbd/tools/` | `assembler` (wraps DASM), `batari` (compiles batari Basic programs) and `emulator` (drives `stella-core`; used only by tests) | MIT |
 | `src/tbd/eval/` | `grading` (extract, assemble, racer-check, categorize), `models` / `claude_client` (Ollama / Claude), `tasks` / `checks` (task specs and running their checks), `case0` (the eval CLI), `regrade` | MIT |
 | `vendor/racer/` | `racer-check`: the grader. Simulator and property checker, from racer, unmodified (see its `NOTICE.md`) | MIT |
 | `stella-core/` | **Optional.** Headless Stella 7.0c core: a reference emulator for cross-checking the grader, not used by the eval | GPL-2.0-or-later |
 | `tasks/<task>/<variant>/` | Task specs: prompt, reference program, check files, optional `check.py` ([docs/design/task-spec.md](docs/design/task-spec.md)). `t1/canonical` is Case 0 / Task 1 | MIT |
 | `vendor/atari2600/` | DASM's `vcs.h` / `macro.h`, the standard headers every program includes | GPL-2.0-or-later |
+| batari Basic (not in the repo) | **Optional.** The BASIC-to-2600 compiler for tasks whose programs are written in batari Basic. `.devcontainer/build-batari.sh` downloads release 1.9 from [batari-Basic/batari-Basic](https://github.com/batari-Basic/batari-Basic), checks its SHA-256 and builds it | Compiler: GPL-2.0. Its 6502 includes, and the code it generates: CC0. ROMs it builds belong to whoever wrote the program (its `LICENSE.txt`) |
 
 ## Building
 
 ### In the dev container (recommended)
 
 Open the folder in VS Code and choose **Reopen in Container**. The image
-installs DASM 2.20.14.1, Rust 1.100.0, Python and CMake, and `post-create.sh`
+installs DASM 2.20.14.1, batari Basic 1.9 (in `/opt/batari-basic`, found
+through `TBD_BATARI`), Rust 1.100.0, Python and CMake, and `post-create.sh`
 then builds:
 
 - a Python venv at `~/venv` with `tbd` installed (`.[test]`)
@@ -64,6 +66,14 @@ cmake -S stella-core -B stella-core/build -DCMAKE_BUILD_TYPE=Debug
 cmake --build stella-core/build -j8
 ```
 
+Optional, for batari Basic programs (needs the Xcode command-line tools,
+which include flex). It builds into `build/batari-basic/`, where `tbd` looks
+by default; set `TBD_BATARI` to use another folder:
+
+```sh
+bash .devcontainer/build-batari.sh build/batari-basic
+```
+
 The Mac and the container build into different folders (`build/` and
 `target/` on the Mac, `build-linux/` and `target-linux/` in the container),
 so both can share one checkout.
@@ -74,8 +84,8 @@ so both can share one checkout.
 pytest -q
 ```
 
-All tests should pass. Tests that need `stella-core` or `racer-check` are
-skipped, with a message, if those aren't built; without Stella, that's the
+All tests should pass. Tests that need `stella-core`, `racer-check` or batari Basic
+are skipped, with a message, if those aren't built; without Stella, that's the
 Stella cross-checks only.
 
 CI runs the same suite on every pull request and push to `main`
@@ -189,4 +199,6 @@ with the grader's git commit. The original record isn't changed.
 
 MIT (see [LICENSE](LICENSE)), except `stella-core/` (GPL-2.0-or-later) and
 the vendored `vcs.h` / `macro.h` (GPL-2.0-or-later); see the `NOTICE.md`
-files in those folders.
+files in those folders. batari Basic is not part of the repo: it is
+downloaded and built at a pinned release, under its own licence (GPL-2.0 for
+the compiler, CC0 for its includes).

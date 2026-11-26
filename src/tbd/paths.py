@@ -31,3 +31,9 @@ STELLA_CORE = Path(
     os.environ.get("TBD_STELLA_CORE")
     or ROOT / "stella-core" / "build" / "shim" / "stella_core"
 )
+
+# batari Basic, the BASIC-to-2600 compiler (.devcontainer/build-batari.sh).
+BATARI = Path(
+    os.environ.get("TBD_BATARI")
+    or ROOT / "build" / "batari-basic"
+)

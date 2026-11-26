@@ -6,6 +6,7 @@ echo "bd:     $(bd version 2>/dev/null | head -1)"
 echo "claude: $(claude --version 2>/dev/null || echo 'not found')"
 echo "git:    $(git --version)"
 echo "dasm:   $(dasm 2>&1 | head -1)"
+echo "bB:     $(cat "${TBD_BATARI:-/opt/batari-basic}/VERSION" 2>/dev/null || echo 'not found')"
 echo "python: $(python3 --version)"
 echo "rust:   $(rustc --version)"
 
