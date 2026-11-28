@@ -3,6 +3,7 @@ The experiment runner, Ollama and nvidia-smi are stubbed; nothing runs a model."
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -311,6 +312,33 @@ def test_local_dir_sink_copies_new_and_changed_files_and_deletes_nothing(tmp_pat
     assert dst.read_text() == "one, two"
     assert (tmp_path / "dest" / "exp" / "kept.txt").exists()
     assert not list((tmp_path / "dest").rglob("*podrunner-tmp"))
+
+
+def test_local_dir_sink_works_where_chmod_and_utime_are_refused(tmp_path, monkeypatch):
+    # RunPod's network volumes (geesefs) refuse chmod and utime with EPERM.
+    def refuse(*a, **k):
+        raise PermissionError(1, "Operation not permitted")
+    real_utime = os.utime
+    monkeypatch.setattr(os, "chmod", refuse)
+    monkeypatch.setattr(os, "utime", refuse)
+    src = tmp_path / "out" / "exp"
+    src.mkdir(parents=True)
+    (src / "a.txt").write_text("one")
+    sink = podrunner.LocalDirSink(tmp_path / "dest")
+    sink.sync(src)
+    dst = tmp_path / "dest" / "exp" / "a.txt"
+    assert dst.read_text() == "one"
+
+    copies = []
+    real_copyfile = shutil.copyfile
+    monkeypatch.setattr(shutil, "copyfile", lambda s, d: copies.append(s) or real_copyfile(s, d))
+    sink.sync(src)
+    assert copies == []   # unchanged since the copy: not copied again
+
+    (src / "a.txt").write_text("two")   # the same size, so only its mtime shows the change
+    real_utime(src / "a.txt", (time.time() + 5, time.time() + 5))
+    sink.sync(src)
+    assert dst.read_text() == "two"
 
 
 def test_command_sink_fills_in_src_and_name_without_a_shell(tmp_path):

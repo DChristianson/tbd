@@ -121,12 +121,20 @@ def host_id(env=os.environ) -> str:
 # ---------------------------------------------------------------- sync targets
 
 class LocalDirSink:
-    """Copies experiments/<name>/ to DEST/<name>/: new and changed files only
-    (by size and modification time), each written beside its final name and
-    then renamed, so a reader never sees half a file. Deletes nothing."""
+    """Copies experiments/<name>/ to DEST/<name>/: new and changed files only,
+    each written beside its final name and then renamed, so a reader never
+    sees half a file. Deletes nothing.
+
+    It copies contents only, not permissions or times. RunPod's network
+    volumes are object storage mounted with geesefs, which refuses chmod and
+    utime (EPERM) but allows writes and renames. A copy's times then can't be
+    compared with the source's, so the sink remembers each source file's size
+    and mtime as it copied it, and copies the file again when either changes.
+    A new sink copies every file once."""
 
     def __init__(self, dest: Path):
         self.dest = Path(dest)
+        self.copied: dict[Path, tuple[int, int]] = {}
 
     def __str__(self):
         return f"directory {self.dest}"
@@ -139,16 +147,14 @@ class LocalDirSink:
                 dst.mkdir(parents=True, exist_ok=True)
                 continue
             st = src.stat()
-            try:
-                dt = dst.stat()
-                if dt.st_size == st.st_size and int(dt.st_mtime) == int(st.st_mtime):
-                    continue
-            except FileNotFoundError:
-                pass
+            seen = (st.st_size, st.st_mtime_ns)
+            if self.copied.get(src) == seen and dst.exists():
+                continue
             dst.parent.mkdir(parents=True, exist_ok=True)
             tmp = dst.with_name(f".{dst.name}.podrunner-tmp")
-            shutil.copy2(src, tmp)
+            shutil.copyfile(src, tmp)
             os.replace(tmp, dst)
+            self.copied[src] = seen
 
 
 class CommandSink:
